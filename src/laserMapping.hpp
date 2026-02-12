@@ -63,6 +63,24 @@ public:
     void imu_cbk(const ImuConstPtr &msg_in);
     void run(OdomMsgPtr &msg_in);
 
+    /** Return the full undistorted scan transformed to world frame. */
+    PointCloudXYZI::Ptr get_world_cloud() const {
+        if (!feats_undistort || feats_undistort->empty()) return nullptr;
+        int size = feats_undistort->points.size();
+        PointCloudXYZI::Ptr cloud(new PointCloudXYZI(size, 1));
+        for (int i = 0; i < size; i++) {
+            const PointType &pi = feats_undistort->points[i];
+            PointType &po = cloud->points[i];
+            V3D p_body(pi.x, pi.y, pi.z);
+            V3D p_global(state_point.rot * (state_point.offset_R_L_I * p_body + state_point.offset_T_L_I) + state_point.pos);
+            po.x = p_global(0);
+            po.y = p_global(1);
+            po.z = p_global(2);
+            po.intensity = pi.intensity;
+        }
+        return cloud;
+    }
+
 private:
     void pointBodyToWorld_ikfom(PointType const * const pi, PointType * const po, state_ikfom &s);
     void pointBodyToWorld(PointType const * const pi, PointType * const po);
