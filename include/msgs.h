@@ -1,6 +1,10 @@
 #ifndef MSGS_H
 #define MSGS_H
 
+#include <string>
+#include <vector>
+#include <boost/shared_ptr.hpp>
+
 typedef unsigned long int uli;
 typedef unsigned long long int ulli;
 typedef unsigned short int usi;

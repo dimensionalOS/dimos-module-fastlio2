@@ -120,7 +120,7 @@ void toPCL(const std::vector<custom_messages::PointField> &pfs, std::vector<pcl:
     }
 }
 
-void toPCL(const custom_messages::Time &stamp, pcl::uint64_t &pcl_stamp)
+void toPCL(const custom_messages::Time &stamp, std::uint64_t &pcl_stamp)
 {
     pcl_stamp = stamp.toNsec() / 1000ull;  // Convert from ns to us
 }

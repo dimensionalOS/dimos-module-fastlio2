@@ -10,7 +10,6 @@
 #include <csignal>
 #include <unistd.h>
 #include <sstream>
-#include <Python.h>
 #include <so3_math.h>
 #include <Eigen/Core>
 #include <pcl/point_cloud.h>
@@ -57,7 +56,7 @@ KD_TREE<PointType> ikdtree;
 class LaserMapping
 {
 public:
-    LaserMapping(/* args */);
+    LaserMapping(const std::string& config_path = CONFIG_FILE_PATH);
     ~LaserMapping();
 
     void livox_pcl_cbk(const CstMsgConstPtr &msg);
@@ -268,7 +267,7 @@ private:
     bool flg_EKF_converged, EKF_stop_flg = 0;
 };
 
-LaserMapping::LaserMapping() : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(new PointCloudXYZI()), feats_undistort(new PointCloudXYZI()),\
+LaserMapping::LaserMapping(const std::string& config_path) : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(new PointCloudXYZI()), feats_undistort(new PointCloudXYZI()),\
                             XAxisPoint_body(LIDAR_SP_LEN, 0.0, 0.0), XAxisPoint_world(LIDAR_SP_LEN, 0.0, 0.0),\
                             position_last(Zero3d), Lidar_T_wrt_IMU(Zero3d), Lidar_R_wrt_IMU(Eye3d),\
                             p_pre(new Preprocess()), p_imu(new ImuProcess())
@@ -288,7 +287,7 @@ LaserMapping::LaserMapping() : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(ne
     // corr_normvect = boost::make_shared<PointCloudXYZI>(100000, 1);
 
     // read json file and set config vars
-    std::ifstream config_f(CONFIG_FILE_PATH);
+    std::ifstream config_f(config_path);
     json config = json::parse(config_f);
     p_pre->lidar_type             = config["preprocess"]["lidar_type"].get<int>();
     if (p_pre->lidar_type == 2)

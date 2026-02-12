@@ -1,14 +1,14 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.5)
 project(fast_lio)
 
-ADD_COMPILE_OPTIONS(-std=c++14 )
-set( CMAKE_CXX_FLAGS "-std=c++14 -O3" )
+ADD_COMPILE_OPTIONS(-std=c++17 )
+set( CMAKE_CXX_FLAGS "-std=c++17 -O3" )
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fexceptions" )
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++14 -pthread -std=c++0x -std=c++14 -fexceptions")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++17 -pthread -std=c++0x -std=c++17 -fexceptions")
 
 message("Current CPU archtecture: ${CMAKE_SYSTEM_PROCESSOR}")
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "(x86)|(X86)|(amd64)|(AMD64)" )
@@ -38,8 +38,11 @@ find_package(OpenMP QUIET)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}   ${OpenMP_C_FLAGS}")
 
-find_package(PythonLibs REQUIRED)
-find_path(MATPLOTLIB_CPP_INCLUDE_DIRS "matplotlibcpp.h")
+option(FASTLIO_ENABLE_PLOTTING "Enable matplotlib plotting" OFF)
+if(FASTLIO_ENABLE_PLOTTING)
+  find_package(PythonLibs REQUIRED)
+  find_path(MATPLOTLIB_CPP_INCLUDE_DIRS "matplotlibcpp.h")
+endif()
 
 find_package(Eigen3 REQUIRED)
 find_package(PCL 1.8 REQUIRED)
@@ -49,12 +52,19 @@ find_package(nlohmann_json 3.2.0 REQUIRED)
 message(Eigen: ${EIGEN3_INCLUDE_DIR})
 
 include_directories(
-	${catkin_INCLUDE_DIRS} 
+	${catkin_INCLUDE_DIRS}
   ${EIGEN3_INCLUDE_DIR}
   ${PCL_INCLUDE_DIRS}
-  ${PYTHON_INCLUDE_DIRS}
   include)
+
+if(FASTLIO_ENABLE_PLOTTING)
+  include_directories(${PYTHON_INCLUDE_DIRS})
+endif()
   
 add_executable(fastlio_mapping src/main.cpp include/ikd-Tree/ikd_Tree.cpp src/preprocess.cpp)
-target_link_libraries(fastlio_mapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${PYTHON_LIBRARIES} yaml-cpp nlohmann_json::nlohmann_json)
-target_include_directories(fastlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
+target_link_libraries(fastlio_mapping ${catkin_LIBRARIES} ${PCL_LIBRARIES} yaml-cpp nlohmann_json::nlohmann_json)
+
+if(FASTLIO_ENABLE_PLOTTING)
+  target_link_libraries(fastlio_mapping ${PYTHON_LIBRARIES})
+  target_include_directories(fastlio_mapping PRIVATE ${PYTHON_INCLUDE_DIRS})
+endif()

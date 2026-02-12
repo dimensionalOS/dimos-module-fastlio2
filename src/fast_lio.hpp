@@ -6,13 +6,15 @@
 class FastLio
 {
 public:
-    FastLio(/* args */);
+    FastLio(const std::string& config_path = CONFIG_FILE_PATH);
     ~FastLio();
 
     void feed_imu(const ImuConstPtr &imu_data);
     void feed_lidar(const CstMsgConstPtr &lidar_data);
     void process();
     std::vector<double> get_pose();
+    const custom_messages::Odometry& get_odometry() const { return *odom_result; }
+    PointCloudXYZI::Ptr get_world_cloud() const { return feats_down_world; }
     void write_to_file(const std::vector<double> &pose);
     void write_to_file(const double &time);
 private:
@@ -21,9 +23,9 @@ private:
     std::unique_ptr<LaserMapping> laser_mapping;
 };
 
-FastLio::FastLio(/* args */) : odom_result(new custom_messages::Odometry), output_file("../data/output.txt"), exec_time_file("../data/time.txt")
+FastLio::FastLio(const std::string& config_path) : odom_result(new custom_messages::Odometry), output_file("../data/output.txt"), exec_time_file("../data/time.txt")
 {
-    laser_mapping = std::make_unique<LaserMapping>();
+    laser_mapping = std::make_unique<LaserMapping>(config_path);
 }
 
 FastLio::~FastLio()
