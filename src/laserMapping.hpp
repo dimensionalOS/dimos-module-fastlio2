@@ -17,12 +17,10 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/io/pcd_io.h>
 #include <ikd-Tree/ikd_Tree.h>
-#include <nlohmann/json.hpp>
+#include <yaml-cpp/yaml.h>
 #include "IMU_Processing.hpp"
 #include "preprocess.h"
 #include "msgs.h"
-
-using json = nlohmann::json;
 
 using custom_messages::ImuConstPtr;
 using custom_messages::ImuPtr;
@@ -56,7 +54,8 @@ KD_TREE<PointType> ikdtree;
 class LaserMapping
 {
 public:
-    LaserMapping(const std::string& config_path = CONFIG_FILE_PATH);
+    LaserMapping(const std::string& config_path = CONFIG_FILE_PATH,
+                 double msr_freq = 50.0, double main_freq = 5000.0);
     ~LaserMapping();
 
     void livox_pcl_cbk(const CstMsgConstPtr &msg);
@@ -285,7 +284,7 @@ private:
     bool flg_EKF_converged, EKF_stop_flg = 0;
 };
 
-LaserMapping::LaserMapping(const std::string& config_path) : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(new PointCloudXYZI()), feats_undistort(new PointCloudXYZI()),\
+LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, double main_freq_) : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(new PointCloudXYZI()), feats_undistort(new PointCloudXYZI()),\
                             XAxisPoint_body(LIDAR_SP_LEN, 0.0, 0.0), XAxisPoint_world(LIDAR_SP_LEN, 0.0, 0.0),\
                             position_last(Zero3d), Lidar_T_wrt_IMU(Zero3d), Lidar_R_wrt_IMU(Eye3d),\
                             p_pre(new Preprocess()), p_imu(new ImuProcess())
@@ -304,30 +303,29 @@ LaserMapping::LaserMapping(const std::string& config_path) : extrinT(3, 0.0), ex
     // laserCloudOri = boost::make_shared<PointCloudXYZI>(100000, 1);
     // corr_normvect = boost::make_shared<PointCloudXYZI>(100000, 1);
 
-    // read json file and set config vars
-    std::ifstream config_f(config_path);
-    json config = json::parse(config_f);
-    p_pre->lidar_type             = config["preprocess"]["lidar_type"].get<int>();
+    // read YAML config file
+    YAML::Node config = YAML::LoadFile(config_path);
+    p_pre->lidar_type             = config["preprocess"]["lidar_type"].as<int>();
     if (p_pre->lidar_type == 2)
     {
-        p_pre->SCAN_RATE              = config["preprocess"]["scan_rate"].get<int>();
-        p_pre->time_unit              = config["preprocess"]["timestamp_unit"].get<int>();
+        p_pre->SCAN_RATE              = config["preprocess"]["scan_rate"].as<int>();
+        p_pre->time_unit              = config["preprocess"]["timestamp_unit"].as<int>();
     }
-    time_sync_en                  = config["common"]["time_sync_en"].get<bool>();
-    time_diff_lidar_to_imu        = config["common"]["time_offset_lidar_to_imu"].get<double>();
-    msr_freq                      = config["common"]["msr_freq"].get<double>();
-    main_freq                     = config["common"]["main_freq"].get<double>();
-    p_pre->N_SCANS                = config["preprocess"]["scan_line"].get<int>();
-    p_pre->blind                  = config["preprocess"]["blind"].get<int>();
-    acc_cov                       = config["mapping"]["acc_cov"].get<double>();
-    gyr_cov                       = config["mapping"]["gyr_cov"].get<double>();
-    b_acc_cov                     = config["mapping"]["b_acc_cov"].get<double>();
-    b_gyr_cov                     = config["mapping"]["b_gyr_cov"].get<double>();
-    fov_deg                       = config["mapping"]["fov_degree"].get<int>();
-    DET_RANGE                     = config["mapping"]["det_range"].get<double>();
-    extrinsic_est_en              = config["mapping"]["extrinsic_est_en"].get<bool>();
-    extrinT                       = config["mapping"]["extrinsic_T"].get<std::vector<double>>();
-    extrinR                       = config["mapping"]["extrinsic_R"].get<std::vector<double>>();
+    time_sync_en                  = config["common"]["time_sync_en"].as<bool>();
+    time_diff_lidar_to_imu        = config["common"]["time_offset_lidar_to_imu"].as<double>();
+    msr_freq                      = msr_freq_;
+    main_freq                     = main_freq_;
+    p_pre->N_SCANS                = config["preprocess"]["scan_line"].as<int>();
+    p_pre->blind                  = config["preprocess"]["blind"].as<double>();
+    acc_cov                       = config["mapping"]["acc_cov"].as<double>();
+    gyr_cov                       = config["mapping"]["gyr_cov"].as<double>();
+    b_acc_cov                     = config["mapping"]["b_acc_cov"].as<double>();
+    b_gyr_cov                     = config["mapping"]["b_gyr_cov"].as<double>();
+    fov_deg                       = config["mapping"]["fov_degree"].as<int>();
+    DET_RANGE                     = config["mapping"]["det_range"].as<double>();
+    extrinsic_est_en              = config["mapping"]["extrinsic_est_en"].as<bool>();
+    extrinT                       = config["mapping"]["extrinsic_T"].as<std::vector<double>>();
+    extrinR                       = config["mapping"]["extrinsic_R"].as<std::vector<double>>();
     NUM_MAX_ITERATIONS            = 4;
     filter_size_corner_min        = 0.5;
     filter_size_surf_min          = 0.5;

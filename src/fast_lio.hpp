@@ -6,7 +6,8 @@
 class FastLio
 {
 public:
-    FastLio(const std::string& config_path = CONFIG_FILE_PATH);
+    FastLio(const std::string& config_path = CONFIG_FILE_PATH,
+            double msr_freq = 50.0, double main_freq = 5000.0);
     ~FastLio();
 
     void feed_imu(const ImuConstPtr &imu_data);
@@ -23,9 +24,10 @@ private:
     std::unique_ptr<LaserMapping> laser_mapping;
 };
 
-FastLio::FastLio(const std::string& config_path) : odom_result(new custom_messages::Odometry), output_file("../data/output.txt"), exec_time_file("../data/time.txt")
+FastLio::FastLio(const std::string& config_path, double msr_freq, double main_freq)
+    : odom_result(new custom_messages::Odometry), output_file("../data/output.txt"), exec_time_file("../data/time.txt")
 {
-    laser_mapping = std::make_unique<LaserMapping>(config_path);
+    laser_mapping = std::make_unique<LaserMapping>(config_path, msr_freq, main_freq);
 }
 
 FastLio::~FastLio()
