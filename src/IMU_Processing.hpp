@@ -55,6 +55,9 @@ class ImuProcess
   V3D cov_bias_gyr;
   V3D cov_bias_acc;
   double first_lidar_time;
+  // Rotate the initial state so the world Z-axis aligns with measured gravity.
+  // Without this the world frame inherits whatever tilt the IMU has at boot.
+  bool gravity_align_en = true;
 
  private:
   void IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, int &N);
@@ -187,9 +190,38 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
     N ++;
   }
   state_ikfom init_state = kf_state.get_x();
-  init_state.grav = S2(- mean_acc / mean_acc.norm() * G_m_s2);
-  
-  //state_inout.rot = Eye3d; // Exp(mean_acc.cross(V3D(0, 0, -1 / scale_gravity)));
+  if (gravity_align_en)
+  {
+    // Align the world frame so +Z is opposite gravity.  The accelerometer of
+    // a static IMU measures the reaction to gravity (≈ +g along the body's
+    // up-axis); rotating that direction onto world +Z makes the EKF's world
+    // frame gravity-aligned, regardless of how the robot was sitting at boot.
+    const V3D body_up    = mean_acc.normalized();
+    const V3D world_up(0.0, 0.0, 1.0);
+    const V3D axis_unscaled = body_up.cross(world_up);
+    const double sin_a = axis_unscaled.norm();
+    const double cos_a = body_up.dot(world_up);
+    Eigen::Matrix3d R;
+    if (sin_a > 1e-9) {
+      const V3D axis = axis_unscaled / sin_a;
+      const double angle = std::atan2(sin_a, cos_a);
+      R = Eigen::AngleAxisd(angle, axis).toRotationMatrix();
+    } else if (cos_a > 0.0) {
+      R = Eigen::Matrix3d::Identity();
+    } else {
+      // mean_acc points "down" — flip 180° around X.
+      R = Eigen::AngleAxisd(M_PI, V3D(1.0, 0.0, 0.0)).toRotationMatrix();
+    }
+    init_state.rot = SO3(R);
+    init_state.grav = S2(0.0, 0.0, -G_m_s2);
+  }
+  else
+  {
+    // Legacy behaviour: leave rot at identity and bake the boot-time tilt
+    // into the gravity vector.  Kept for backward compatibility.
+    init_state.grav = S2(- mean_acc / mean_acc.norm() * G_m_s2);
+  }
+
   init_state.bg  = mean_gyr;
   init_state.offset_T_L_I = Lidar_T_wrt_IMU;
   init_state.offset_R_L_I = Lidar_R_wrt_IMU;

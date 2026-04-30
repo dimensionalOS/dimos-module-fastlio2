@@ -326,6 +326,12 @@ LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, dou
     extrinsic_est_en              = config["mapping"]["extrinsic_est_en"].as<bool>();
     extrinT                       = config["mapping"]["extrinsic_T"].as<std::vector<double>>();
     extrinR                       = config["mapping"]["extrinsic_R"].as<std::vector<double>>();
+    // Optional: align the world frame to measured gravity at IMU init.
+    // Defaults to true; set `mapping.gravity_align: false` for legacy behaviour.
+    bool gravity_align_en = true;
+    if (config["mapping"]["gravity_align"]) {
+        gravity_align_en = config["mapping"]["gravity_align"].as<bool>();
+    }
     NUM_MAX_ITERATIONS            = 4;
     filter_size_corner_min        = 0.5;
     filter_size_surf_min          = 0.5;
@@ -353,6 +359,7 @@ LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, dou
     p_imu->set_acc_cov(V3D(acc_cov, acc_cov, acc_cov));
     p_imu->set_gyr_bias_cov(V3D(b_gyr_cov, b_gyr_cov, b_gyr_cov));
     p_imu->set_acc_bias_cov(V3D(b_acc_cov, b_acc_cov, b_acc_cov));
+    p_imu->gravity_align_en = gravity_align_en;
 
     double epsi[23] = {0.001};
     fill(epsi, epsi+23, 0.001);
