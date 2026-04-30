@@ -93,9 +93,15 @@ private:
     static void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_data)
     {
         double match_start = omp_get_wtime();
-        laserCloudOri->clear(); 
-        corr_normvect->clear(); 
-        total_residual = 0.0; 
+        // The loop below writes laserCloudOri->points[effct_feat_num] for
+        // effct_feat_num in [0, feats_down_size).  Resize to that upper bound
+        // so the writes land in valid memory; effct_feat_num bounds the read
+        // loops further down.  Previously this did clear() (size -> 0), which
+        // is silently UB on Linux libstdc++ release mode but trips libc++
+        // hardening (size-checked operator[]) on Apple toolchains.
+        laserCloudOri->resize(feats_down_size);
+        corr_normvect->resize(feats_down_size);
+        total_residual = 0.0;
 
         /** closest surface search and residual computation **/
         #ifdef MP_EN
