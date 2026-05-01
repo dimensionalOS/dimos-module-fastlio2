@@ -18,10 +18,7 @@
             eigen
             pcl
             yaml-cpp
-            nlohmann_json
-            python3
-            python3Packages.matplotlib
-            python3Packages.numpy
+            sophus
             llvmPackages.openmp
           ];
 

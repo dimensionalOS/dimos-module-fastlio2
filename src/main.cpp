@@ -1,31 +1,18 @@
 #include <iostream>
 #include <fstream>
 #include <string>
-#include "csv.h"
 #include "fast_lio.hpp"
 
-#define BASE_PATH   std::string("../")
-#define DATA_PATH   std::string(BASE_PATH + std::string("data/"))
-// #define DATA_FILE_HORIZON    std::string("../data/synch_data.txt") // change path based on your input file
 #define DATA_FILE_HORIZON    std::string("../data/8_shape_path.txt")
 
 mutex m_stop;
 
 bool is_stop = false;
 
-// read imu and lidar files
-// convert them to the proper format
-// feed them through interface
 double msr_freq = 50.0;
-const int imu_freq = 50;
-const int lidar_freq = 10;
-const int diff_freq = imu_freq / lidar_freq;
 
-/* This is for parsing HITACHI dataset (or any dataset in the proper format from .csv)
-bool parse_file(FastLio &fast_lio)
-{
-    const std::string imu_path = DATA_PATH + std::string("imu/imu.csv");
-    const std::string lidar_path = DATA_PATH + std::string("lidar/");
+/* Removed: CSV-based parse_file (used csv.h which is no longer needed).
+   The active parse_file below reads from a simple text format instead.
 
     const double imu_period = double(1.0 / imu_freq); // in s
     const double lidar_period = double(1.0 / lidar_freq); // in s
