@@ -2,7 +2,9 @@
   description = "FAST-LIO (non-ROS) dev environment";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Pin to nixos-24.11 (GCC 13) — nixos-unstable has GCC 15 which has
+    # a brace-init incompatibility with glibc's pthread headers.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
   };
 

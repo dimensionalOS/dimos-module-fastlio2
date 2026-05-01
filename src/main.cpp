@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <csignal>
 #include "fast_lio.hpp"
 
 #define DATA_FILE_HORIZON    std::string("../data/8_shape_path.txt")
