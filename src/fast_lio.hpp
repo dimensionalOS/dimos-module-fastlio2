@@ -2,6 +2,7 @@
 #define FAST_LIO_H_
 
 #include "laserMapping.hpp"
+#include "raw_dump.hpp"
 
 class FastLio
 {
@@ -18,10 +19,18 @@ public:
     PointCloudXYZI::Ptr get_world_cloud() const { return laser_mapping->get_world_cloud(); }
     void write_to_file(const std::vector<double> &pose);
     void write_to_file(const double &time);
+
+    // Enable raw sensor data recording to a binary file.
+    // Data is buffered in RAM and serialized after duration_sec.
+    void enable_raw_dump(const std::string& path, double duration_sec = 120.0) {
+        raw_dump_.enable(path, duration_sec);
+    }
+
 private:
     OdomMsgPtr odom_result;
     ofstream output_file, exec_time_file;
     std::unique_ptr<LaserMapping> laser_mapping;
+    RawDump raw_dump_;
 };
 
 FastLio::FastLio(const std::string& config_path, double msr_freq, double main_freq)
@@ -40,11 +49,13 @@ FastLio::~FastLio()
 
 void FastLio::feed_imu(const ImuConstPtr &imu_data)
 {
+    raw_dump_.record_imu(imu_data);
     laser_mapping->imu_cbk(imu_data);
 }
 
 void FastLio::feed_lidar(const CstMsgConstPtr &lidar_data)
 {
+    raw_dump_.record_lidar(lidar_data);
     laser_mapping->livox_pcl_cbk(lidar_data);
 }
 
