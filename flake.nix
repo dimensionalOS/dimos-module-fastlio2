@@ -22,6 +22,7 @@
             yaml-cpp
             sophus
             llvmPackages.openmp
+            libnl  # needed by libpcap (transitive dep from PCL→VTK)
           ];
 
           shellHook = ''

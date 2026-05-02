@@ -6,9 +6,11 @@
 // Provides the feed_imu() / feed_lidar() / process() interface expected by
 // the DimOS NativeModule, with in-RAM raw data recording (RawDump).
 
+#include <algorithm>
 #include <deque>
 #include <mutex>
 #include <condition_variable>
+#include <yaml-cpp/yaml.h>
 
 #include "map_builder/commons.h"
 #include "map_builder/ieskf.h"
@@ -76,9 +78,47 @@ private:
 FastLio::FastLio(const std::string& config_path, double /*msr_freq*/, double /*main_freq*/)
     : m_odom(new custom_messages::Odometry)
 {
-    // TODO: Load config from YAML file at config_path.
-    // For now use defaults from Config struct.
-    (void)config_path;
+    // Load config from YAML if path is provided and file exists
+    if (!config_path.empty()) {
+        try {
+            YAML::Node cfg = YAML::LoadFile(config_path);
+            if (cfg) {
+                auto get = [&](const char* key, auto& val) {
+                    if (cfg[key]) val = cfg[key].as<std::remove_reference_t<decltype(val)>>();
+                };
+                get("lidar_filter_num", m_config.lidar_filter_num);
+                get("lidar_min_range", m_config.lidar_min_range);
+                get("lidar_max_range", m_config.lidar_max_range);
+                get("scan_resolution", m_config.scan_resolution);
+                get("map_resolution", m_config.map_resolution);
+                get("cube_len", m_config.cube_len);
+                get("det_range", m_config.det_range);
+                get("move_thresh", m_config.move_thresh);
+                get("na", m_config.na);
+                get("ng", m_config.ng);
+                get("nba", m_config.nba);
+                get("nbg", m_config.nbg);
+                get("imu_init_num", m_config.imu_init_num);
+                get("near_search_num", m_config.near_search_num);
+                get("ieskf_max_iter", m_config.ieskf_max_iter);
+                get("gravity_align", m_config.gravity_align);
+                get("esti_il", m_config.esti_il);
+                get("lidar_cov_inv", m_config.lidar_cov_inv);
+                if (cfg["t_il"]) {
+                    auto v = cfg["t_il"].as<std::vector<double>>();
+                    if (v.size() == 3) m_config.t_il << v[0], v[1], v[2];
+                }
+                if (cfg["r_il"]) {
+                    auto v = cfg["r_il"].as<std::vector<double>>();
+                    if (v.size() == 9) m_config.r_il << v[0],v[1],v[2],v[3],v[4],v[5],v[6],v[7],v[8];
+                }
+                printf("[FastLio] Loaded config from %s\n", config_path.c_str());
+            }
+        } catch (const std::exception& e) {
+            fprintf(stderr, "[FastLio] WARNING: Could not load config '%s': %s\n",
+                    config_path.c_str(), e.what());
+        }
+    }
 
     m_kf = std::make_shared<IESKF>();
     m_kf->setMaxIter(m_config.ieskf_max_iter);
@@ -107,6 +147,11 @@ void FastLio::feed_lidar(const CstMsgConstPtr &lidar_data)
     CloudType::Ptr cloud = Utils::livox2PCL(
         lidar_data, m_config.lidar_filter_num,
         m_config.lidar_min_range, m_config.lidar_max_range);
+
+    // Sort points by timestamp (stored in curvature field) so that
+    // cloud->points.back().curvature gives the actual scan end time.
+    std::sort(cloud->points.begin(), cloud->points.end(),
+        [](const PointType &a, const PointType &b) { return a.curvature < b.curvature; });
 
     std::lock_guard<std::mutex> lock(m_mtx);
     if (timestamp < m_last_lidar_time) {

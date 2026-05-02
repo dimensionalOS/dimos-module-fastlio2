@@ -32,7 +32,11 @@ pcl::PointCloud<pcl::PointXYZINormal>::Ptr Utils::livox2PCL(
 IMUData Utils::imu2Data(const ImuConstPtr &msg)
 {
     double t = msg->header.stamp.toSec();
-    V3D acc(msg->linear_acceleration.x, msg->linear_acceleration.y, msg->linear_acceleration.z);
+    // Livox Mid-360 reports acceleration in 0.1 m/s² (g-units).
+    // Multiply by 10 to get m/s², matching the reference implementation.
+    V3D acc(msg->linear_acceleration.x * 10.0,
+            msg->linear_acceleration.y * 10.0,
+            msg->linear_acceleration.z * 10.0);
     V3D gyro(msg->angular_velocity.x, msg->angular_velocity.y, msg->angular_velocity.z);
     return IMUData(acc, gyro, t);
 }
