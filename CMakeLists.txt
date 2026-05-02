@@ -53,8 +53,10 @@ add_executable(fastlio_mapping
   src/map_builder/map_builder.cpp
 )
 
-find_library(NL3_LIB nl-3 HINTS ENV LIBRARY_PATH)
-find_library(NL_GENL3_LIB nl-genl-3 HINTS ENV LIBRARY_PATH)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  find_library(NL3_LIB nl-3 HINTS ENV LIBRARY_PATH)
+  find_library(NL_GENL3_LIB nl-genl-3 HINTS ENV LIBRARY_PATH)
+endif()
 
 target_link_libraries(fastlio_mapping
   ${PCL_LIBRARIES}
