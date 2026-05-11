@@ -169,19 +169,25 @@ bool FastLio::sync_packages(SyncPackage &package)
     if (m_lidar_buffer.empty() || m_imu_buffer.empty())
         return false;
 
-    if (!m_lidar_pushed) {
-        auto &[ts, cloud] = m_lidar_buffer.front();
-        package.cloud = cloud;
-        package.cloud_start_time = ts;
+    // Always populate package.cloud from the buffer front. A previous
+    // sync_packages() call may have set m_lidar_pushed=true and returned
+    // false (IMU not caught up yet); FastLio::process() builds a fresh
+    // SyncPackage every iteration, so without this we'd dereference a
+    // default-null shared_ptr in undistort() on the call that finally
+    // returns true.
+    auto &[ts, cloud] = m_lidar_buffer.front();
+    package.cloud = cloud;
+    package.cloud_start_time = ts;
 
+    if (!m_lidar_pushed) {
         if (cloud->empty()) {
             m_lidar_end_time = ts + 0.1;
         } else {
             m_lidar_end_time = ts + cloud->points.back().curvature / 1000.0;
         }
-        package.cloud_end_time = m_lidar_end_time;
         m_lidar_pushed = true;
     }
+    package.cloud_end_time = m_lidar_end_time;
 
     if (m_last_imu_time < m_lidar_end_time)
         return false;
