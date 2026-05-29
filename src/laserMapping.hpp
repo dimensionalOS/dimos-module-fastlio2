@@ -93,11 +93,13 @@ private:
     void update_odometry(OdomMsgPtr &msg_in);
     static void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_data)
     {
-        // No per-iter print — h_share_model is called per IESKF iteration (5-30x per scan);
-        // summary lives in the per-scan SCAN line in run().
+        // EXPERIMENT: temporarily reverting c661fe8 fix to test if the UB-clear() variant
+        // (used in live recording's binary at v0.3.0-quiet-logs) reproduces the runaway.
+        // Original UB code: clear() sets size=0; the inner selection loop then writes
+        // laserCloudOri->points[effct_feat_num] which is silently UB on Linux libstdc++.
         double match_start = omp_get_wtime();
-        laserCloudOri->resize(feats_down_size);
-        corr_normvect->resize(feats_down_size);
+        laserCloudOri->clear();
+        corr_normvect->clear();
         total_residual = 0.0;
 
         /** closest surface search and residual computation **/
