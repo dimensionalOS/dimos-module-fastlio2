@@ -93,13 +93,9 @@ private:
     void update_odometry(OdomMsgPtr &msg_in);
     static void h_share_model(state_ikfom &s, esekfom::dyn_share_datastruct<double> &ekfom_data)
     {
+        // No per-iter print — h_share_model is called per IESKF iteration (5-30x per scan);
+        // summary lives in the per-scan SCAN line in run().
         double match_start = omp_get_wtime();
-        // The loop below writes laserCloudOri->points[effct_feat_num] for
-        // effct_feat_num in [0, feats_down_size).  Resize to that upper bound
-        // so the writes land in valid memory; effct_feat_num bounds the read
-        // loops further down.  Previously this did clear() (size -> 0), which
-        // is silently UB on Linux libstdc++ release mode but trips libc++
-        // hardening (size-checked operator[]) on Apple toolchains.
         laserCloudOri->resize(feats_down_size);
         corr_normvect->resize(feats_down_size);
         total_residual = 0.0;
@@ -169,8 +165,8 @@ private:
 
         if (effct_feat_num < 1)
         {
+            if (fastlio_debug) fprintf(stderr, "[fastlio] HSHARE_INVALID  reason=no_effective_points\n");
             ekfom_data.valid = false;
-            //   ROS_WARN("No Effective Points! \n");
             return;
         }
 
@@ -404,9 +400,9 @@ void LaserMapping::update_odometry(OdomMsgPtr &msg_in)
 {
     msg_in->header.frame_id = "camera_init";
     msg_in->child_frame_id = "body";
-    msg_in->header.stamp = custom_messages::Time().fromSec(lidar_end_time);// ros::Time().fromSec(lidar_end_time);
+    msg_in->header.stamp = custom_messages::Time().fromSec(lidar_end_time);
     set_posestamp(msg_in->pose);
-    // std::cout << odomAftMapped.pose.pose.position.x << " " << odomAftMapped.pose.pose.position.y << " " << odomAftMapped.pose.pose.position.z << "\n";
+    // No per-publish print — caller already has pos in the SCAN summary.
     auto P = kf.get_P();
     for (int i = 0; i < 6; i ++)
     {
@@ -484,6 +480,8 @@ void LaserMapping::lasermap_fov_segment()
     kdtree_delete_time = 0.0;    
     pointBodyToWorld(XAxisPoint_body, XAxisPoint_world);
     V3D pos_LiD = pos_lid;
+    // No per-call prints — fov_segment is called per-scan but with no important branches
+    // to trace. Map-shift events are captured indirectly via the SCAN summary's ikd size delta.
     if (!Localmap_Initialized){
         for (int i = 0; i < 3; i++){
             LocalMap_Points.vertex_min[i] = pos_LiD(i) - cube_len / 2.0;
@@ -600,48 +598,27 @@ bool LaserMapping::sync_packages(MeasureGroup &meas)
     double lidar_mean_scantime = 0.0;
     int    scan_num = 0;
 
-    // std::cout << "Lidar: " << lidar_buffer.size() << ", IMU: " << imu_buffer.size() << std::endl;
-    if (lidar_buffer.empty() || imu_buffer.empty()) {
-        // std::cout << "Empttttyyyy..." << std::endl;
-        return false;
-    }
-    /*** push a lidar scan ***/
-    if(!lidar_pushed)
-    {
+    // No prints — high call rate (5kHz). Per-scan summary is in LaserMapping::run().
+    if (lidar_buffer.empty() || imu_buffer.empty()) return false;
+    if(!lidar_pushed) {
         meas.lidar = lidar_buffer.front();
         meas.lidar_beg_time = time_buffer.front();
-        if (meas.lidar->points.size() <= 1) // time too little
-        {
+        if (meas.lidar->points.size() <= 1) {
             lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
-            if (fastlio_debug) std::cout << "Too few input point cloud!\n";
-            // ROS_WARN("Too few input point cloud!\n");
-        }
-        else if (meas.lidar->points.back().curvature / double(1000) < 0.5 * lidar_mean_scantime)
-        {
+        } else if (meas.lidar->points.back().curvature / double(1000) < 0.5 * lidar_mean_scantime) {
             lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
-        }
-        else
-        {
+        } else {
             scan_num ++;
             lidar_end_time = meas.lidar_beg_time + meas.lidar->points.back().curvature / double(1000);
             lidar_mean_scantime += (meas.lidar->points.back().curvature / double(1000) - lidar_mean_scantime) / scan_num;
         }
-
         meas.lidar_end_time = lidar_end_time;
-
         lidar_pushed = true;
     }
-
-    if (last_timestamp_imu < lidar_end_time)
-    {
-        return false;
-    }
-
-    /*** push imu data, and pop from imu buffer ***/
+    if (last_timestamp_imu < lidar_end_time) return false;
     double imu_time = imu_buffer.front()->header.stamp.toSec();
     meas.imu.clear();
-    while ((!imu_buffer.empty()) && (imu_time < lidar_end_time))
-    {
+    while ((!imu_buffer.empty()) && (imu_time < lidar_end_time)) {
         imu_time = imu_buffer.front()->header.stamp.toSec();
         if(imu_time > lidar_end_time) break;
         meas.imu.push_back(imu_buffer.front());
@@ -699,7 +676,7 @@ void LaserMapping::map_incremental()
 
     double st_time = omp_get_wtime();
     add_point_size = ikdtree.Add_Points(PointToAdd, true);
-    ikdtree.Add_Points(PointNoNeedDownsample, false); 
+    ikdtree.Add_Points(PointNoNeedDownsample, false);
     add_point_size = PointToAdd.size() + PointNoNeedDownsample.size();
     kdtree_incremental_time = omp_get_wtime() - st_time;
 }
@@ -828,110 +805,60 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
     {
         if (flg_first_scan)
         {
-            // std::cout << "I am here 1" << std::endl;
+            if (fastlio_debug) fprintf(stderr, "[fastlio] FIRST_SCAN t=%.3f\n", Measures.lidar_beg_time);
             first_lidar_time = Measures.lidar_beg_time;
             p_imu->first_lidar_time = first_lidar_time;
             flg_first_scan = false;
             return;
         }
 
-        double t0,t1,t2,t3,t4,t5,match_start, solve_start, svd_time;
-
-        match_time = 0;
-        kdtree_search_time = 0.0;
-        solve_time = 0;
+        double t0 = omp_get_wtime();
+        match_time = 0; kdtree_search_time = 0.0; solve_time = 0;
         solve_const_H_time = 0;
-        svd_time   = 0;
-        t0 = omp_get_wtime();
 
-        // std::cout << "I am here 2" << std::endl;
         p_imu->Process(Measures, kf, feats_undistort);
         state_point = kf.get_x();
         pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
 
-        // std::cout << "I am here 3" << std::endl;
-
-        // std::cout << "feats_undistort->empty(): " << feats_undistort->empty() << std::endl;
-        // std::cout << "feats_undistort == NULL: " << (feats_undistort == NULL) << std::endl;
-        // std::cout << "feats_undistort->size()" << feats_undistort->size() << std::endl;
-
-        if (feats_undistort->empty() || (feats_undistort == NULL))
-        {
-            //  ROS_WARN("No point, skip this scan!\n");
-            // std::cout << "I am here 4" << std::endl;
+        if (feats_undistort->empty() || (feats_undistort == NULL)) {
+            if (fastlio_debug) fprintf(stderr, "[fastlio] SKIP t=%.3f reason=feats_empty\n", Measures.lidar_beg_time);
             return;
         }
 
-        flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? \
-                        false : true;
-        // std::cout << "I am here 5" << std::endl;
-        /*** Segment the map in lidar FOV ***/
+        flg_EKF_inited = (Measures.lidar_beg_time - first_lidar_time) < INIT_TIME ? false : true;
+
         lasermap_fov_segment();
 
-        // std::cout << "I am here 6" << std::endl;
-
-        /*** downsample the feature points in a scan ***/
         downSizeFilterSurf.setInputCloud(feats_undistort);
-        // std::cout << "I am here 7" << std::endl;
         downSizeFilterSurf.filter(*feats_down_body);
-        // std::cout << "I am here 8" << std::endl;
-        t1 = omp_get_wtime();
-        // std::cout << "I am here 9" << std::endl;
         feats_down_size = feats_down_body->points.size();
-        // std::cout << "feats_down_size: " << feats_down_size << std::endl;
-        /*** initialize the map kdtree ***/
-        if(ikdtree.Root_Node == nullptr)
-        {
-            // std::cout << "I am here 10" << std::endl;
-            if(feats_down_size > 5)
-            {
-                // std::cout << "I am here 11" << std::endl;
+
+        if(ikdtree.Root_Node == nullptr) {
+            if(feats_down_size > 5) {
                 ikdtree.set_downsample_param(filter_size_map_min);
                 feats_down_world->resize(feats_down_size);
                 for(int i = 0; i < feats_down_size; i++)
-                {
                     pointBodyToWorld(&(feats_down_body->points[i]), &(feats_down_world->points[i]));
-                }
                 ikdtree.Build(feats_down_world->points);
+                if (fastlio_debug) fprintf(stderr, "[fastlio] IKD_INIT t=%.3f n=%d\n",
+                                           Measures.lidar_beg_time, feats_down_size);
             }
             return;
         }
-        int featsFromMapNum = ikdtree.validnum();
-        kdtree_size_st = ikdtree.size();
-        // std::cout << "I am here 12" << std::endl;
-        // cout<<"[ mapping ]: In num: "<<feats_undistort->points.size()<<" downsamp "<<feats_down_size<<" Map num: "<<featsFromMapNum<<"effect num:"<<effct_feat_num<<endl;
 
-        /*** ICP and iterated Kalman filter update ***/
-        if (feats_down_size < 5)
-        {
-            // std::cout << "I am here 13" << std::endl;
-            //  ROS_WARN("No point, skip this scan!\n");
+        if (feats_down_size < 5) {
+            if (fastlio_debug) fprintf(stderr, "[fastlio] SKIP t=%.3f reason=too_few_down\n", Measures.lidar_beg_time);
             return;
         }
-        
+
         normvec->resize(feats_down_size);
         feats_down_world->resize(feats_down_size);
-
         V3D ext_euler = SO3ToEuler(state_point.offset_R_L_I);
-        // std::cout << "I am here 14" << std::endl;
-        if(0) // If you need to see map point, change to "if(1)"
-        {
-            PointVector ().swap(ikdtree.PCL_Storage);
-            ikdtree.flatten(ikdtree.Root_Node, ikdtree.PCL_Storage, NOT_RECORD);
-            featsFromMap->clear();
-            featsFromMap->points = ikdtree.PCL_Storage;
-        }
-
         pointSearchInd_surf.resize(feats_down_size);
         Nearest_Points.resize(feats_down_size);
         int  rematch_num = 0;
-        bool nearest_search_en = true; //
+        bool nearest_search_en = true;
 
-        t2 = omp_get_wtime();
-
-        // std::cout << "I am here 15" << std::endl;
-        
-        /*** iterated state estimation ***/
         double t_update_start = omp_get_wtime();
         double solve_H_time = 0;
         kf.update_iterated_dyn_share_modified(LASER_POINT_COV, solve_H_time);
@@ -942,16 +869,26 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         geoQuat.y = state_point.rot.coeffs()[1];
         geoQuat.z = state_point.rot.coeffs()[2];
         geoQuat.w = state_point.rot.coeffs()[3];
-
         double t_update_end = omp_get_wtime();
 
-        /******* Update odometry *******/
         update_odometry(msg_in);
-
-        /*** add the feature points to map kdtree ***/
-        t3 = omp_get_wtime();
         map_incremental();
-        t5 = omp_get_wtime();
+        double t5 = omp_get_wtime();
+
+        // ONE compact summary line per scan — everything we need to trace divergence
+        if (fastlio_debug) {
+            fprintf(stderr,
+                "[fastlio] SCAN t=%.3f pos=(%.3f,%.3f,%.3f) rpy=(%.1f,%.1f,%.1f) bg=(%.2e,%.2e,%.2e) ba=(%.2e,%.2e,%.2e) "
+                "feats_d=%d effct=%d res=%.4f iter_ms=%.1f tot_ms=%.1f ikd=%d add=%d inited=%d\n",
+                Measures.lidar_beg_time,
+                state_point.pos[0], state_point.pos[1], state_point.pos[2],
+                euler_cur[0]*57.2958, euler_cur[1]*57.2958, euler_cur[2]*57.2958,
+                state_point.bg[0], state_point.bg[1], state_point.bg[2],
+                state_point.ba[0], state_point.ba[1], state_point.ba[2],
+                feats_down_size, effct_feat_num, res_mean_last,
+                (t_update_end-t_update_start)*1000, (t5-t0)*1000,
+                ikdtree.size(), add_point_size, (int)flg_EKF_inited);
+        }
     }
 }
 
