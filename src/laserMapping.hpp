@@ -31,6 +31,14 @@ using custom_messages::OdomMsgPtr;
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
 
+// Reject a point's NN correspondence if the farthest of the
+// NUM_MATCH_POINTS neighbours is more than this many SQUARED metres
+// away. Default 5 m² → 2.236 m radius. Picks bad matches when the
+// IESKF pose prior is already wildly off; tightening helps the loop
+// fail loudly (zero effective points → HSHARE_INVALID) instead of
+// running away into hundreds of metres of state corruption.
+#define NN_CORRESPONDENCE_MAX_SQ_DIST_M2 (5.0)
+
 PointCloudXYZI::Ptr feats_down_body(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_world(new PointCloudXYZI());
 PointCloudXYZI::Ptr normvec(new PointCloudXYZI(100000, 1));
@@ -125,7 +133,7 @@ private:
             {
                 /** Find the closest surfaces in the map **/
                 ikdtree.Nearest_Search(point_world, NUM_MATCH_POINTS, points_near, pointSearchSqDis);
-                point_selected_surf[i] = points_near.size() < NUM_MATCH_POINTS ? false : pointSearchSqDis[NUM_MATCH_POINTS - 1] > 5 ? false : true;
+                point_selected_surf[i] = points_near.size() < NUM_MATCH_POINTS ? false : pointSearchSqDis[NUM_MATCH_POINTS - 1] > NN_CORRESPONDENCE_MAX_SQ_DIST_M2 ? false : true;
             }
 
             if (!point_selected_surf[i]) continue;
