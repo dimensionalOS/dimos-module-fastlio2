@@ -280,6 +280,8 @@ private:
     MeasureGroup Measures;
     esekfom::esekf<state_ikfom, 12, input_ikfom> kf;
     state_ikfom state_point;
+    state_ikfom last_good_state;        // last accepted post-update state (for guardrail rollback)
+    bool last_good_state_valid = false; // false until first non-rejected scan
     vect3 pos_lid;
 
     custom_messages::Odometry odomAftMapped;
@@ -868,8 +870,38 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
 
         double t_update_start = omp_get_wtime();
         double solve_H_time = 0;
+        // Snapshot state before the IESKF update so we can roll back if it tries to apply
+        // an unphysical pose or velocity jump. Caps are sized to the Go2 physical envelope —
+        // raise them for faster platforms.
+        state_ikfom state_pre_update = kf.get_x();
         kf.update_iterated_dyn_share_modified(LASER_POINT_COV, solve_H_time);
         state_point = kf.get_x();
+
+        const double MAX_POS_JUMP_M  = 0.5;   // per-scan pos delta cap (5 m/s implied @10Hz)
+        const double MAX_VEL_NORM_MS = 3.0;   // velocity cap (~ Go2 physical max)
+        const double pos_jump = (state_point.pos - state_pre_update.pos).norm();
+        const double post_vel_norm = state_point.vel.norm();
+        const double pre_vel_norm  = state_pre_update.vel.norm();
+        bool guardrail_rejected = false;
+        // Reject if EITHER (a) the update tried a huge pose jump, OR
+        // (b) the post-update OR rolled-back state has unphysical velocity.
+        // On rejection we restore the last known-good state with velocity zeroed — this
+        // freezes pose drift during a divergence streak instead of accumulating predict-step
+        // error. The EKF re-converges on the next clean scan and last_good_state advances.
+        if (pos_jump > MAX_POS_JUMP_M || post_vel_norm > MAX_VEL_NORM_MS || pre_vel_norm > MAX_VEL_NORM_MS) {
+            fprintf(stderr,
+                "[fastlio] guardrail: rejecting scan update (pos_jump=%.2fm, vel_pre=%.2f vel_post=%.2f) — rollback to last good + freeze\n",
+                pos_jump, pre_vel_norm, post_vel_norm);
+            state_ikfom s_clean = last_good_state_valid ? last_good_state : state_pre_update;
+            s_clean.vel.setZero();
+            kf.change_x(s_clean);
+            state_point = s_clean;
+            guardrail_rejected = true;
+        } else {
+            last_good_state = state_point;
+            last_good_state_valid = true;
+        }
+
         euler_cur = SO3ToEuler(state_point.rot);
         pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
         geoQuat.x = state_point.rot.coeffs()[0];
@@ -879,7 +911,12 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         double t_update_end = omp_get_wtime();
 
         update_odometry(msg_in);
-        map_incremental();
+        // Skip map insertion on rejected scans so the kdtree doesn't accumulate points at a
+        // divergent pose — this is what breaks FAST-LIO's reinforcing-loop divergence (bad
+        // scan inserted → next NN search confirms wrong pose → snowball).
+        if (!guardrail_rejected) {
+            map_incremental();
+        }
         double t5 = omp_get_wtime();
 
         // ONE compact summary line per scan — everything we need to trace divergence
