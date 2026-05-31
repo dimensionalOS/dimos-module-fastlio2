@@ -84,6 +84,10 @@ public:
         s.rot = SO3(q);
         kf.change_x(s);
         state_point = s;
+        // The orientation just snapped — next scan's ω will be measured
+        // from the rolled-back rotation, not the natural EKF flow, so
+        // invalidate the previous ω to avoid a false-positive accel spike.
+        prev_ieskf_omega_valid = false;
     }
     std::vector<double> get_world_quat() const {
         state_ikfom s = kf.get_x();
@@ -107,6 +111,9 @@ public:
     void clear_icp_omega() { icp_omega_valid = false; }
     void set_rotation_gap_threshold_deg_s(double threshold) {
         rotation_gap_threshold_deg_s = threshold;
+    }
+    void set_angular_accel_cap_deg_s2(double cap) {
+        angular_accel_cap_deg_s2 = cap;
     }
 
     /** Return the full undistorted scan transformed to world frame. */
@@ -284,6 +291,14 @@ private:
     double rotation_gap_threshold_deg_s = 10.0;
     Eigen::Vector3d icp_omega_body = Eigen::Vector3d::Zero();
     bool icp_omega_valid = false;
+
+    // Angular-acceleration cap. Computed across consecutive IESKF body-frame
+    // ω values as ||ω_now − ω_prev||/scan_dt (deg/s²). Catches sudden rate
+    // jumps that the EKF produces when a bad map insert pulls its rotation.
+    // Zero disables.
+    double angular_accel_cap_deg_s2 = 100.0;
+    Eigen::Vector3d prev_ieskf_omega_body = Eigen::Vector3d::Zero();
+    bool prev_ieskf_omega_valid = false;
     double timediff_lidar_wrt_imu = 0.0;
 
     float DET_RANGE = 300.0f;
@@ -944,14 +959,18 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         const double scan_dt = (last_scan_end_time > 0.0)
             ? std::max(lidar_end_time - last_scan_end_time, 1e-3)
             : 0.1;
+        // Compute current scan's IESKF body-frame ω once — reused by the
+        // rotation-gap check (against ICP) and the angular-accel cap
+        // (against the previous scan's IESKF ω).
+        Eigen::Matrix3d R_pre = state_pre_update.rot.toRotationMatrix();
+        Eigen::Matrix3d R_post = state_point.rot.toRotationMatrix();
+        Eigen::Matrix3d dR_body = R_pre.transpose() * R_post;
+        Eigen::AngleAxisd aa(dR_body);
+        Eigen::Vector3d ieskf_omega_body = aa.axis() * (aa.angle() / scan_dt);
+
         bool rotation_gap_skip = false;
         double gap_deg_s = 0.0;
         if (icp_omega_valid && rotation_gap_threshold_deg_s > 0) {
-            Eigen::Matrix3d R_pre = state_pre_update.rot.toRotationMatrix();
-            Eigen::Matrix3d R_post = state_point.rot.toRotationMatrix();
-            Eigen::Matrix3d dR_body = R_pre.transpose() * R_post;
-            Eigen::AngleAxisd aa(dR_body);
-            Eigen::Vector3d ieskf_omega_body = aa.axis() * (aa.angle() / scan_dt);
             const double gap_rad_s = (ieskf_omega_body - icp_omega_body).norm();
             gap_deg_s = gap_rad_s * 180.0 / M_PI;
             if (gap_deg_s > rotation_gap_threshold_deg_s) {
@@ -962,6 +981,24 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
                     gap_deg_s, rotation_gap_threshold_deg_s);
             }
         }
+
+        bool angular_accel_skip = false;
+        if (prev_ieskf_omega_valid && angular_accel_cap_deg_s2 > 0) {
+            const double accel_rad_s2 =
+                (ieskf_omega_body - prev_ieskf_omega_body).norm() / scan_dt;
+            const double accel_deg_s2 = accel_rad_s2 * 180.0 / M_PI;
+            if (accel_deg_s2 > angular_accel_cap_deg_s2) {
+                angular_accel_skip = true;
+                fprintf(stderr,
+                    "[fastlio] angular_accel: skipping map_incremental "
+                    "(||Δω||/dt=%.0f°/s² > %.0f°/s²)\n",
+                    accel_deg_s2, angular_accel_cap_deg_s2);
+            }
+        }
+        prev_ieskf_omega_body = ieskf_omega_body;
+        prev_ieskf_omega_valid = true;
+
+        const bool rotation_skip = rotation_gap_skip || angular_accel_skip;
         last_scan_end_time = lidar_end_time;
         // Per-scan icp_omega is consumed; main.cpp re-publishes each scan.
         icp_omega_valid = false;
@@ -979,7 +1016,7 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         // reinforcing-loop break that the old accel/vel guardrail provided,
         // but gated on the seed cause (orientation disagreement) rather than
         // a symptom (linear-velocity blowup).
-        if (!rotation_gap_skip) {
+        if (!rotation_skip) {
             map_incremental();
         }
         double t5 = omp_get_wtime();

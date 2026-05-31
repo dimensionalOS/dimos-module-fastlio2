@@ -43,6 +43,7 @@ public:
     void set_icp_omega_body(double wx_rad_s, double wy_rad_s, double wz_rad_s);
     void clear_icp_omega();
     void set_rotation_gap_threshold_deg_s(double threshold);
+    void set_angular_accel_cap_deg_s2(double cap);
 
 private:
     OdomMsgPtr odom_result;
@@ -134,6 +135,11 @@ void FastLio::clear_icp_omega()
 void FastLio::set_rotation_gap_threshold_deg_s(double threshold)
 {
     laser_mapping->set_rotation_gap_threshold_deg_s(threshold);
+}
+
+void FastLio::set_angular_accel_cap_deg_s2(double cap)
+{
+    laser_mapping->set_angular_accel_cap_deg_s2(cap);
 }
 
 #endif
