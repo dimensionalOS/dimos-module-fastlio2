@@ -20,6 +20,23 @@ public:
     PointCloudXYZI::Ptr get_world_cloud() const { return laser_mapping->get_world_cloud(); }
     void write_to_file(const std::vector<double> &pose);
     void write_to_file(const double &time);
+
+    // External correction hook — replace the IESKF state's world-frame
+    // position and velocity (xyz). Orientation/biases/gravity untouched.
+    // Used by main.cpp's "ICP cross-check rollback" path: when the IESKF
+    // state's velocity disagrees badly with scan-to-scan ICP, integrate
+    // ICP velocities forward from an older known-good pose and overwrite
+    // the IESKF state to match.
+    void set_world_pose_vel(double px, double py, double pz,
+                            double vx, double vy, double vz);
+
+    /// Read-only access to the current IESKF world-frame orientation as a
+    /// quaternion (qx, qy, qz, qw). Used by callers integrating body-frame
+    /// velocities (e.g. ICP) into world-frame displacement.
+    std::vector<double> get_world_quat() const;
+    /// World-frame velocity magnitude from the IESKF state.
+    double get_world_vel_norm() const;
+
 private:
     OdomMsgPtr odom_result;
     ofstream output_file, exec_time_file;
@@ -78,7 +95,23 @@ void FastLio::write_to_file(const std::vector<double> &pose)
 
 void FastLio::write_to_file(const double &time)
 {
-    exec_time_file << time << "\n"; 
+    exec_time_file << time << "\n";
+}
+
+void FastLio::set_world_pose_vel(double px, double py, double pz,
+                                 double vx, double vy, double vz)
+{
+    laser_mapping->set_world_pose_vel(px, py, pz, vx, vy, vz);
+}
+
+std::vector<double> FastLio::get_world_quat() const
+{
+    return laser_mapping->get_world_quat();
+}
+
+double FastLio::get_world_vel_norm() const
+{
+    return laser_mapping->get_world_vel_norm();
 }
 
 #endif

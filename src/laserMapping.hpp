@@ -73,6 +73,29 @@ public:
     void imu_cbk(const ImuConstPtr &msg_in);
     void run(OdomMsgPtr &msg_in);
 
+    // External-correction hooks (paired API exposed via FastLio wrapper).
+    void set_world_pose_vel(double px, double py, double pz,
+                            double vx, double vy, double vz) {
+        state_ikfom s = kf.get_x();
+        s.pos[0] = px; s.pos[1] = py; s.pos[2] = pz;
+        s.vel[0] = vx; s.vel[1] = vy; s.vel[2] = vz;
+        kf.change_x(s);
+        state_point = s;
+        // last_good_state must follow — otherwise the guardrail will
+        // immediately roll BACK to the wrong place on its next reject.
+        last_good_state = s;
+        last_good_state_valid = true;
+    }
+    std::vector<double> get_world_quat() const {
+        state_ikfom s = kf.get_x();
+        return { s.rot.coeffs()[0], s.rot.coeffs()[1],
+                 s.rot.coeffs()[2], s.rot.coeffs()[3] };
+    }
+    double get_world_vel_norm() const {
+        state_ikfom s = kf.get_x();
+        return std::sqrt(s.vel[0]*s.vel[0] + s.vel[1]*s.vel[1] + s.vel[2]*s.vel[2]);
+    }
+
     /** Return the full undistorted scan transformed to world frame. */
     PointCloudXYZI::Ptr get_world_cloud() const {
         if (!feats_undistort || feats_undistort->empty()) { return nullptr; }
