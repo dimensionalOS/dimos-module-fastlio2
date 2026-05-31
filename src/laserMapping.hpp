@@ -115,6 +115,17 @@ public:
     void set_angular_accel_cap_deg_s2(double cap) {
         angular_accel_cap_deg_s2 = cap;
     }
+    void set_icp_velocity_body(double vx, double vy, double vz) {
+        icp_velocity_body = {vx, vy, vz};
+        icp_velocity_valid = true;
+    }
+    void clear_icp_velocity() { icp_velocity_valid = false; }
+    void set_linear_velocity_gap_threshold_ms(double threshold) {
+        linear_velocity_gap_threshold_ms = threshold;
+    }
+    void set_linear_accel_cap_ms2(double cap) {
+        linear_accel_cap_ms2 = cap;
+    }
 
     /** Return the full undistorted scan transformed to world frame. */
     PointCloudXYZI::Ptr get_world_cloud() const {
@@ -299,6 +310,23 @@ private:
     double angular_accel_cap_deg_s2 = 100.0;
     Eigen::Vector3d prev_ieskf_omega_body = Eigen::Vector3d::Zero();
     bool prev_ieskf_omega_valid = false;
+
+    // Linear-velocity-gap preventative map-skip. Caller supplies ICP's
+    // body-frame linear velocity (m/s); we compare against the IESKF's
+    // body-frame velocity (world velocity rotated into body frame). If
+    // the magnitudes differ by more than this threshold, skip the map
+    // insert. Zero disables.
+    double linear_velocity_gap_threshold_ms = 3.0;
+    Eigen::Vector3d icp_velocity_body = Eigen::Vector3d::Zero();
+    bool icp_velocity_valid = false;
+
+    // Linear-acceleration cap. ||v_now − v_prev||/scan_dt (m/s²) in world
+    // frame, across consecutive IESKF updates. Catches the same kind of
+    // sudden jump as the angular accel cap, but for translation. Zero
+    // disables.
+    double linear_accel_cap_ms2 = 30.0;
+    Eigen::Vector3d prev_ieskf_velocity_world = Eigen::Vector3d::Zero();
+    bool prev_ieskf_velocity_valid = false;
     double timediff_lidar_wrt_imu = 0.0;
 
     float DET_RANGE = 300.0f;
@@ -998,10 +1026,42 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         prev_ieskf_omega_body = ieskf_omega_body;
         prev_ieskf_omega_valid = true;
 
-        const bool rotation_skip = rotation_gap_skip || angular_accel_skip;
+        // Linear-velocity-gap preventative: compare IESKF body-frame |v|
+        // against ICP body-frame |v|. IESKF state's `vel` is world frame
+        // — rotate into body via state_point.rot (which is body→world).
+        Eigen::Vector3d v_world(state_point.vel[0], state_point.vel[1], state_point.vel[2]);
+        Eigen::Vector3d v_body = state_point.rot.toRotationMatrix().transpose() * v_world;
+        bool linear_velocity_gap_skip = false;
+        if (icp_velocity_valid && linear_velocity_gap_threshold_ms > 0) {
+            const double gap_ms = std::fabs(v_body.norm() - icp_velocity_body.norm());
+            if (gap_ms > linear_velocity_gap_threshold_ms) {
+                linear_velocity_gap_skip = true;
+                fprintf(stderr,
+                    "[fastlio] linear_velocity_gap: skipping map_incremental "
+                    "(||v_ieskf|−|v_icp||=%.2fm/s > %.2fm/s)\n",
+                    gap_ms, linear_velocity_gap_threshold_ms);
+            }
+        }
+
+        bool linear_accel_skip = false;
+        if (prev_ieskf_velocity_valid && linear_accel_cap_ms2 > 0) {
+            const double accel_ms2 = (v_world - prev_ieskf_velocity_world).norm() / scan_dt;
+            if (accel_ms2 > linear_accel_cap_ms2) {
+                linear_accel_skip = true;
+                fprintf(stderr,
+                    "[fastlio] linear_accel: skipping map_incremental "
+                    "(||Δv||/dt=%.1fm/s² > %.1fm/s²)\n",
+                    accel_ms2, linear_accel_cap_ms2);
+            }
+        }
+        prev_ieskf_velocity_world = v_world;
+        prev_ieskf_velocity_valid = true;
+
+        const bool rotation_skip = rotation_gap_skip || angular_accel_skip
+                                || linear_velocity_gap_skip || linear_accel_skip;
         last_scan_end_time = lidar_end_time;
-        // Per-scan icp_omega is consumed; main.cpp re-publishes each scan.
         icp_omega_valid = false;
+        icp_velocity_valid = false;
 
         euler_cur = SO3ToEuler(state_point.rot);
         pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;

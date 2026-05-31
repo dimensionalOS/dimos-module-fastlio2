@@ -44,6 +44,10 @@ public:
     void clear_icp_omega();
     void set_rotation_gap_threshold_deg_s(double threshold);
     void set_angular_accel_cap_deg_s2(double cap);
+    void set_icp_velocity_body(double vx_ms, double vy_ms, double vz_ms);
+    void clear_icp_velocity();
+    void set_linear_velocity_gap_threshold_ms(double threshold);
+    void set_linear_accel_cap_ms2(double cap);
 
 private:
     OdomMsgPtr odom_result;
@@ -140,6 +144,26 @@ void FastLio::set_rotation_gap_threshold_deg_s(double threshold)
 void FastLio::set_angular_accel_cap_deg_s2(double cap)
 {
     laser_mapping->set_angular_accel_cap_deg_s2(cap);
+}
+
+void FastLio::set_icp_velocity_body(double vx, double vy, double vz)
+{
+    laser_mapping->set_icp_velocity_body(vx, vy, vz);
+}
+
+void FastLio::clear_icp_velocity()
+{
+    laser_mapping->clear_icp_velocity();
+}
+
+void FastLio::set_linear_velocity_gap_threshold_ms(double threshold)
+{
+    laser_mapping->set_linear_velocity_gap_threshold_ms(threshold);
+}
+
+void FastLio::set_linear_accel_cap_ms2(double cap)
+{
+    laser_mapping->set_linear_accel_cap_ms2(cap);
 }
 
 #endif
