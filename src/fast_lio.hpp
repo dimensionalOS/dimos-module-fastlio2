@@ -9,7 +9,7 @@ public:
     FastLio(const std::string& config_path = CONFIG_FILE_PATH,
             double msr_freq = 50.0, double main_freq = 5000.0,
             double guardrail_max_pos_jump_m = 0.5,
-            double guardrail_max_vel_norm_ms = 3.0);
+            double guardrail_max_accel_norm_ms2 = 30.0);
     ~FastLio();
 
     void feed_imu(const ImuConstPtr &imu_data);
@@ -27,12 +27,12 @@ private:
 };
 
 FastLio::FastLio(const std::string& config_path, double msr_freq, double main_freq,
-                 double guardrail_max_pos_jump_m, double guardrail_max_vel_norm_ms)
+                 double guardrail_max_pos_jump_m, double guardrail_max_accel_norm_ms2)
     : odom_result(new custom_messages::Odometry), output_file("../data/output.txt"), exec_time_file("../data/time.txt")
 {
     laser_mapping = std::make_unique<LaserMapping>(
         config_path, msr_freq, main_freq,
-        guardrail_max_pos_jump_m, guardrail_max_vel_norm_ms);
+        guardrail_max_pos_jump_m, guardrail_max_accel_norm_ms2);
 }
 
 FastLio::~FastLio()

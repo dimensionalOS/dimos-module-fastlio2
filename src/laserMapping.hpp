@@ -66,7 +66,7 @@ public:
     LaserMapping(const std::string& config_path = CONFIG_FILE_PATH,
                  double msr_freq = 50.0, double main_freq = 5000.0,
                  double guardrail_max_pos_jump_m_ = 0.5,
-                 double guardrail_max_vel_norm_ms_ = 3.0);
+                 double guardrail_max_accel_norm_ms2_ = 30.0);
     ~LaserMapping();
 
     void livox_pcl_cbk(const CstMsgConstPtr &msg);
@@ -238,8 +238,15 @@ private:
     // Guardrail thresholds set from the FastLio constructor (which gets them
     // from the dimos NativeModule CLI args). Zero or negative disables that
     // particular check.
+    //
+    // `guardrail_max_accel_norm_ms2` caps the per-update velocity correction
+    // magnitude in physical-acceleration units — the check is
+    //   (vel_post - vel_pre).norm() / scan_dt > guardrail_max_accel_norm_ms2
+    // which lets steady-state high velocities through (a robot on a train at
+    // 200 mph: tiny per-scan corrections, never trips) but catches the bug
+    // pattern where IESKF applies a 100+ m/s correction in a single update.
     double guardrail_max_pos_jump_m = 0.5;
-    double guardrail_max_vel_norm_ms = 3.0;
+    double guardrail_max_accel_norm_ms2 = 30.0;
     double timediff_lidar_wrt_imu = 0.0;
 
     float DET_RANGE = 300.0f;
@@ -289,6 +296,7 @@ private:
     state_ikfom state_point;
     state_ikfom last_good_state;        // last accepted post-update state (for guardrail rollback)
     bool last_good_state_valid = false; // false until first non-rejected scan
+    double last_scan_end_time = 0.0;    // for computing scan_dt in the accel guardrail check
     vect3 pos_lid;
 
     custom_messages::Odometry odomAftMapped;
@@ -304,7 +312,7 @@ private:
 };
 
 LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, double main_freq_,
-                           double guardrail_max_pos_jump_m_, double guardrail_max_vel_norm_ms_) : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(new PointCloudXYZI()), feats_undistort(new PointCloudXYZI()),\
+                           double guardrail_max_pos_jump_m_, double guardrail_max_accel_norm_ms2_) : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(new PointCloudXYZI()), feats_undistort(new PointCloudXYZI()),\
                             XAxisPoint_body(LIDAR_SP_LEN, 0.0, 0.0), XAxisPoint_world(LIDAR_SP_LEN, 0.0, 0.0),\
                             position_last(Zero3d), Lidar_T_wrt_IMU(Zero3d), Lidar_R_wrt_IMU(Eye3d),\
                             p_pre(new Preprocess()), p_imu(new ImuProcess())
@@ -336,7 +344,7 @@ LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, dou
     msr_freq                      = msr_freq_;
     main_freq                     = main_freq_;
     guardrail_max_pos_jump_m      = guardrail_max_pos_jump_m_;
-    guardrail_max_vel_norm_ms     = guardrail_max_vel_norm_ms_;
+    guardrail_max_accel_norm_ms2  = guardrail_max_accel_norm_ms2_;
     p_pre->N_SCANS                = config["preprocess"]["scan_line"].as<int>();
     p_pre->blind                  = config["preprocess"]["blind"].as<double>();
     acc_cov                       = config["mapping"]["acc_cov"].as<double>();
@@ -891,26 +899,36 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
 
         // Caps come from the constructor (FastLio2Config in dimos → CLI args
         // on the native binary → FastLio ctor → here). A zero or negative cap
-        // disables that particular check, letting downstream callers turn the
-        // guardrail off without recompiling.
-        const double pos_jump      = (state_point.pos - state_pre_update.pos).norm();
-        const double post_vel_norm = state_point.vel.norm();
-        const double pre_vel_norm  = state_pre_update.vel.norm();
+        // disables that particular check.
+        //
+        // pos_jump check: per-update position correction magnitude (m).
+        // accel check: per-update velocity correction magnitude divided by
+        //   scan_dt, interpreted as an effective acceleration (m/s²). This
+        //   form lets the IESKF track steady-state high velocities — a
+        //   platform that physically accelerated to 200 mph would do it via
+        //   thousands of clean updates with tiny per-update delta-v, and
+        //   never trip the cap. The divergence pattern we're guarding
+        //   against is a single-update velocity jump of 100+ m/s, ~1000 m/s²,
+        //   which the cap catches regardless of the platform's velocity
+        //   envelope.
+        const double pos_jump = (state_point.pos - state_pre_update.pos).norm();
+        const double dvel = (state_point.vel - state_pre_update.vel).norm();
+        // First-scan fallback: no prior scan_end_time yet → assume nominal
+        // 100 ms (10 Hz scan rate). Subsequent scans use the actual delta.
+        const double scan_dt = (last_scan_end_time > 0.0)
+            ? std::max(lidar_end_time - last_scan_end_time, 1e-3)
+            : 0.1;
+        const double accel = dvel / scan_dt;
         bool guardrail_rejected = false;
-        // Reject if EITHER (a) the update tried a huge pose jump, OR
-        // (b) the post-update OR rolled-back state has unphysical velocity.
-        // On rejection we restore the last known-good state with velocity zeroed — this
-        // freezes pose drift during a divergence streak instead of accumulating predict-step
-        // error. The EKF re-converges on the next clean scan and last_good_state advances.
         const bool pos_jump_exceeds = guardrail_max_pos_jump_m > 0
             && pos_jump > guardrail_max_pos_jump_m;
-        const bool vel_exceeds = guardrail_max_vel_norm_ms > 0
-            && (post_vel_norm > guardrail_max_vel_norm_ms
-                || pre_vel_norm  > guardrail_max_vel_norm_ms);
-        if (pos_jump_exceeds || vel_exceeds) {
+        const bool accel_exceeds = guardrail_max_accel_norm_ms2 > 0
+            && accel > guardrail_max_accel_norm_ms2;
+        if (pos_jump_exceeds || accel_exceeds) {
             fprintf(stderr,
-                "[fastlio] guardrail: rejecting scan update (pos_jump=%.2fm, vel_pre=%.2f vel_post=%.2f) — rollback to last good + freeze\n",
-                pos_jump, pre_vel_norm, post_vel_norm);
+                "[fastlio] guardrail: rejecting scan update (pos_jump=%.2fm, dvel=%.2fm/s, "
+                "scan_dt=%.3fs, accel=%.2fm/s^2) — rollback to last good + freeze\n",
+                pos_jump, dvel, scan_dt, accel);
             state_ikfom s_clean = last_good_state_valid ? last_good_state : state_pre_update;
             s_clean.vel.setZero();
             kf.change_x(s_clean);
@@ -920,6 +938,7 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
             last_good_state = state_point;
             last_good_state_valid = true;
         }
+        last_scan_end_time = lidar_end_time;
 
         euler_cur = SO3ToEuler(state_point.rot);
         pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
