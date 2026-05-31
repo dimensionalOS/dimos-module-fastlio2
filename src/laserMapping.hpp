@@ -64,7 +64,9 @@ class LaserMapping
 {
 public:
     LaserMapping(const std::string& config_path = CONFIG_FILE_PATH,
-                 double msr_freq = 50.0, double main_freq = 5000.0);
+                 double msr_freq = 50.0, double main_freq = 5000.0,
+                 double guardrail_max_pos_jump_m_ = 0.5,
+                 double guardrail_max_vel_norm_ms_ = 3.0);
     ~LaserMapping();
 
     void livox_pcl_cbk(const CstMsgConstPtr &msg);
@@ -233,6 +235,11 @@ private:
     bool   runtime_pos_log = false, pcd_save_en = false, time_sync_en = false, path_en = true;
 
     double msr_freq = 0.0, main_freq = 0.0;
+    // Guardrail thresholds set from the FastLio constructor (which gets them
+    // from the dimos NativeModule CLI args). Zero or negative disables that
+    // particular check.
+    double guardrail_max_pos_jump_m = 0.5;
+    double guardrail_max_vel_norm_ms = 3.0;
     double timediff_lidar_wrt_imu = 0.0;
 
     float DET_RANGE = 300.0f;
@@ -296,7 +303,8 @@ private:
     bool flg_EKF_converged, EKF_stop_flg = 0;
 };
 
-LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, double main_freq_) : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(new PointCloudXYZI()), feats_undistort(new PointCloudXYZI()),\
+LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, double main_freq_,
+                           double guardrail_max_pos_jump_m_, double guardrail_max_vel_norm_ms_) : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(new PointCloudXYZI()), feats_undistort(new PointCloudXYZI()),\
                             XAxisPoint_body(LIDAR_SP_LEN, 0.0, 0.0), XAxisPoint_world(LIDAR_SP_LEN, 0.0, 0.0),\
                             position_last(Zero3d), Lidar_T_wrt_IMU(Zero3d), Lidar_R_wrt_IMU(Eye3d),\
                             p_pre(new Preprocess()), p_imu(new ImuProcess())
@@ -327,6 +335,8 @@ LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, dou
     time_diff_lidar_to_imu        = config["common"]["time_offset_lidar_to_imu"].as<double>();
     msr_freq                      = msr_freq_;
     main_freq                     = main_freq_;
+    guardrail_max_pos_jump_m      = guardrail_max_pos_jump_m_;
+    guardrail_max_vel_norm_ms     = guardrail_max_vel_norm_ms_;
     p_pre->N_SCANS                = config["preprocess"]["scan_line"].as<int>();
     p_pre->blind                  = config["preprocess"]["blind"].as<double>();
     acc_cov                       = config["mapping"]["acc_cov"].as<double>();
@@ -879,9 +889,11 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         kf.update_iterated_dyn_share_modified(LASER_POINT_COV, solve_H_time);
         state_point = kf.get_x();
 
-        const double MAX_POS_JUMP_M  = 0.5;   // per-scan pos delta cap (5 m/s implied @10Hz)
-        const double MAX_VEL_NORM_MS = 3.0;   // velocity cap (~ Go2 physical max)
-        const double pos_jump = (state_point.pos - state_pre_update.pos).norm();
+        // Caps come from the constructor (FastLio2Config in dimos → CLI args
+        // on the native binary → FastLio ctor → here). A zero or negative cap
+        // disables that particular check, letting downstream callers turn the
+        // guardrail off without recompiling.
+        const double pos_jump      = (state_point.pos - state_pre_update.pos).norm();
         const double post_vel_norm = state_point.vel.norm();
         const double pre_vel_norm  = state_pre_update.vel.norm();
         bool guardrail_rejected = false;
@@ -890,7 +902,12 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         // On rejection we restore the last known-good state with velocity zeroed — this
         // freezes pose drift during a divergence streak instead of accumulating predict-step
         // error. The EKF re-converges on the next clean scan and last_good_state advances.
-        if (pos_jump > MAX_POS_JUMP_M || post_vel_norm > MAX_VEL_NORM_MS || pre_vel_norm > MAX_VEL_NORM_MS) {
+        const bool pos_jump_exceeds = guardrail_max_pos_jump_m > 0
+            && pos_jump > guardrail_max_pos_jump_m;
+        const bool vel_exceeds = guardrail_max_vel_norm_ms > 0
+            && (post_vel_norm > guardrail_max_vel_norm_ms
+                || pre_vel_norm  > guardrail_max_vel_norm_ms);
+        if (pos_jump_exceeds || vel_exceeds) {
             fprintf(stderr,
                 "[fastlio] guardrail: rejecting scan update (pos_jump=%.2fm, vel_pre=%.2f vel_post=%.2f) — rollback to last good + freeze\n",
                 pos_jump, pre_vel_norm, post_vel_norm);
