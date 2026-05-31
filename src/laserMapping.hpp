@@ -73,7 +73,7 @@ public:
 
     /** Return the full undistorted scan transformed to world frame. */
     PointCloudXYZI::Ptr get_world_cloud() const {
-        if (!feats_undistort || feats_undistort->empty()) return nullptr;
+        if (!feats_undistort || feats_undistort->empty()) { return nullptr; }
         int size = feats_undistort->points.size();
         PointCloudXYZI::Ptr cloud(new PointCloudXYZI(size, 1));
         for (int i = 0; i < size; i++) {
@@ -136,7 +136,7 @@ private:
                 point_selected_surf[i] = points_near.size() < NUM_MATCH_POINTS ? false : pointSearchSqDis[NUM_MATCH_POINTS - 1] > NN_CORRESPONDENCE_MAX_SQ_DIST_M2 ? false : true;
             }
 
-            if (!point_selected_surf[i]) continue;
+            if (!point_selected_surf[i]) { continue; }
 
             VF(4) pabcd;
             point_selected_surf[i] = false;
@@ -172,7 +172,7 @@ private:
 
         if (effct_feat_num < 1)
         {
-            if (fastlio_debug) fprintf(stderr, "[fastlio] HSHARE_INVALID  reason=no_effective_points\n");
+            if (fastlio_debug) { fprintf(stderr, "[fastlio] HSHARE_INVALID  reason=no_effective_points\n"); }
             ekfom_data.valid = false;
             return;
         }
@@ -504,9 +504,9 @@ void LaserMapping::lasermap_fov_segment()
     for (int i = 0; i < 3; i++){
         dist_to_map_edge[i][0] = fabs(pos_LiD(i) - LocalMap_Points.vertex_min[i]);
         dist_to_map_edge[i][1] = fabs(pos_LiD(i) - LocalMap_Points.vertex_max[i]);
-        if (dist_to_map_edge[i][0] <= MOV_THRESHOLD * DET_RANGE || dist_to_map_edge[i][1] <= MOV_THRESHOLD * DET_RANGE) need_move = true;
+        if (dist_to_map_edge[i][0] <= MOV_THRESHOLD * DET_RANGE || dist_to_map_edge[i][1] <= MOV_THRESHOLD * DET_RANGE) { need_move = true; }
     }
-    if (!need_move) return;
+    if (!need_move) { return; }
     BoxPointType New_LocalMap_Points, tmp_boxpoints;
     New_LocalMap_Points = LocalMap_Points;
     float mov_dist = max((cube_len - 2.0 * MOV_THRESHOLD * DET_RANGE) * 0.5 * 0.9, double(DET_RANGE * (MOV_THRESHOLD -1)));
@@ -528,7 +528,7 @@ void LaserMapping::lasermap_fov_segment()
 
     points_cache_collect();
     double delete_begin = omp_get_wtime();
-    if(cub_needrm.size() > 0) kdtree_delete_counter = ikdtree.Delete_Point_Boxes(cub_needrm);
+    if (cub_needrm.size() > 0) { kdtree_delete_counter = ikdtree.Delete_Point_Boxes(cub_needrm); }
     kdtree_delete_time = omp_get_wtime() - delete_begin;
 }
 
@@ -542,21 +542,21 @@ void LaserMapping::livox_pcl_cbk(const CstMsgConstPtr &msg)
     // std::cout << msg->header.stamp.toSec() << std::endl;
     if (msg->header.stamp.toSec() < last_timestamp_lidar)
     {
-        if (fastlio_debug) std::cout << "lidar loop back, clear buffer" << std::endl;
+        if (fastlio_debug) { std::cout << "lidar loop back, clear buffer" << std::endl; }
         lidar_buffer.clear();
     }
     last_timestamp_lidar = msg->header.stamp.toSec();
     
     if (!time_sync_en && abs(last_timestamp_imu - last_timestamp_lidar) > 10.0 && !imu_buffer.empty() && !lidar_buffer.empty() )
     {
-        if (fastlio_debug) printf("IMU and LiDAR not Synced, IMU time: %lf, lidar header time: %lf \n",last_timestamp_imu, last_timestamp_lidar);
+        if (fastlio_debug) { printf("IMU and LiDAR not Synced, IMU time: %lf, lidar header time: %lf \n",last_timestamp_imu, last_timestamp_lidar); }
     }
 
     if (time_sync_en && !timediff_set_flg && abs(last_timestamp_lidar - last_timestamp_imu) > 1 && !imu_buffer.empty())
     {
         timediff_set_flg = true;
         timediff_lidar_wrt_imu = last_timestamp_lidar + 0.1 - last_timestamp_imu;
-        if (fastlio_debug) printf("Self sync IMU and LiDAR, time diff is %.10lf \n", timediff_lidar_wrt_imu);
+        if (fastlio_debug) { printf("Self sync IMU and LiDAR, time diff is %.10lf \n", timediff_lidar_wrt_imu); }
     }
 
     PointCloudXYZI::Ptr  ptr(new PointCloudXYZI());
@@ -608,7 +608,7 @@ bool LaserMapping::sync_packages(MeasureGroup &meas)
     int    scan_num = 0;
 
     // No prints — high call rate (5kHz). Per-scan summary is in LaserMapping::run().
-    if (lidar_buffer.empty() || imu_buffer.empty()) return false;
+    if (lidar_buffer.empty() || imu_buffer.empty()) { return false; }
     if(!lidar_pushed) {
         meas.lidar = lidar_buffer.front();
         meas.lidar_beg_time = time_buffer.front();
@@ -624,12 +624,12 @@ bool LaserMapping::sync_packages(MeasureGroup &meas)
         meas.lidar_end_time = lidar_end_time;
         lidar_pushed = true;
     }
-    if (last_timestamp_imu < lidar_end_time) return false;
+    if (last_timestamp_imu < lidar_end_time) { return false; }
     double imu_time = imu_buffer.front()->header.stamp.toSec();
     meas.imu.clear();
     while ((!imu_buffer.empty()) && (imu_time < lidar_end_time)) {
         imu_time = imu_buffer.front()->header.stamp.toSec();
-        if(imu_time > lidar_end_time) break;
+        if (imu_time > lidar_end_time) { break; }
         meas.imu.push_back(imu_buffer.front());
         imu_buffer.pop_front();
     }
@@ -668,14 +668,14 @@ void LaserMapping::map_incremental()
             }
             for (int readd_i = 0; readd_i < NUM_MATCH_POINTS; readd_i ++)
             {
-                if (points_near.size() < NUM_MATCH_POINTS) break;
+                if (points_near.size() < NUM_MATCH_POINTS) { break; }
                 if (calc_dist(points_near[readd_i], mid_point) < dist)
                 {
                     need_add = false;
                     break;
                 }
             }
-            if (need_add) PointToAdd.push_back(feats_down_world->points[i]);
+            if (need_add) { PointToAdd.push_back(feats_down_world->points[i]); }
         }
         else
         {
@@ -814,7 +814,7 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
     {
         if (flg_first_scan)
         {
-            if (fastlio_debug) fprintf(stderr, "[fastlio] FIRST_SCAN t=%.3f\n", Measures.lidar_beg_time);
+            if (fastlio_debug) { fprintf(stderr, "[fastlio] FIRST_SCAN t=%.3f\n", Measures.lidar_beg_time); }
             first_lidar_time = Measures.lidar_beg_time;
             p_imu->first_lidar_time = first_lidar_time;
             flg_first_scan = false;
@@ -830,7 +830,7 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
 
         if (feats_undistort->empty() || (feats_undistort == NULL)) {
-            if (fastlio_debug) fprintf(stderr, "[fastlio] SKIP t=%.3f reason=feats_empty\n", Measures.lidar_beg_time);
+            if (fastlio_debug) { fprintf(stderr, "[fastlio] SKIP t=%.3f reason=feats_empty\n", Measures.lidar_beg_time); }
             return;
         }
 
@@ -849,14 +849,16 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
                 for(int i = 0; i < feats_down_size; i++)
                     pointBodyToWorld(&(feats_down_body->points[i]), &(feats_down_world->points[i]));
                 ikdtree.Build(feats_down_world->points);
-                if (fastlio_debug) fprintf(stderr, "[fastlio] IKD_INIT t=%.3f n=%d\n",
-                                           Measures.lidar_beg_time, feats_down_size);
+                if (fastlio_debug) {
+                    fprintf(stderr, "[fastlio] IKD_INIT t=%.3f n=%d\n",
+                            Measures.lidar_beg_time, feats_down_size);
+                }
             }
             return;
         }
 
         if (feats_down_size < 5) {
-            if (fastlio_debug) fprintf(stderr, "[fastlio] SKIP t=%.3f reason=too_few_down\n", Measures.lidar_beg_time);
+            if (fastlio_debug) { fprintf(stderr, "[fastlio] SKIP t=%.3f reason=too_few_down\n", Measures.lidar_beg_time); }
             return;
         }
 
