@@ -8,8 +8,7 @@ class FastLio
 public:
     FastLio(const std::string& config_path = CONFIG_FILE_PATH,
             double msr_freq = 50.0, double main_freq = 5000.0,
-            double guardrail_max_pos_jump_m = 0.5,
-            double guardrail_max_accel_norm_ms2 = 30.0);
+            double rotation_gap_threshold_deg_s = 10.0);
     ~FastLio();
 
     void feed_imu(const ImuConstPtr &imu_data);
@@ -22,13 +21,11 @@ public:
     void write_to_file(const double &time);
 
     // External correction hook — replace the IESKF state's world-frame
-    // position and velocity (xyz). Orientation/biases/gravity untouched.
-    // Used by main.cpp's "ICP cross-check rollback" path: when the IESKF
-    // state's velocity disagrees badly with scan-to-scan ICP, integrate
-    // ICP velocities forward from an older known-good pose and overwrite
-    // the IESKF state to match.
-    void set_world_pose_vel(double px, double py, double pz,
-                            double vx, double vy, double vz);
+    // position, orientation (quaternion), and velocity. Biases/gravity
+    // untouched. Used by main.cpp's "ICP cross-check rollback" path.
+    void set_world_pose_quat_vel(double px, double py, double pz,
+                                 double qx, double qy, double qz, double qw,
+                                 double vx, double vy, double vz);
 
     /// Read-only access to the current IESKF world-frame orientation as a
     /// quaternion (qx, qy, qz, qw). Used by callers integrating body-frame
@@ -37,6 +34,16 @@ public:
     /// World-frame velocity magnitude from the IESKF state.
     double get_world_vel_norm() const;
 
+    /// Preventative map-skip: the next call to process() will skip
+    /// map_incremental if |ω_ieskf − ω_icp_body| (in deg/s) exceeds the
+    /// configured threshold. Caller passes ICP's body-frame angular
+    /// velocity (rad/s); FastLio computes the IESKF's body-frame ω
+    /// internally from its own state, takes the magnitude of the diff,
+    /// and gates the kd-tree insert.
+    void set_icp_omega_body(double wx_rad_s, double wy_rad_s, double wz_rad_s);
+    void clear_icp_omega();
+    void set_rotation_gap_threshold_deg_s(double threshold);
+
 private:
     OdomMsgPtr odom_result;
     ofstream output_file, exec_time_file;
@@ -44,12 +51,11 @@ private:
 };
 
 FastLio::FastLio(const std::string& config_path, double msr_freq, double main_freq,
-                 double guardrail_max_pos_jump_m, double guardrail_max_accel_norm_ms2)
+                 double rotation_gap_threshold_deg_s)
     : odom_result(new custom_messages::Odometry), output_file("../data/output.txt"), exec_time_file("../data/time.txt")
 {
     laser_mapping = std::make_unique<LaserMapping>(
-        config_path, msr_freq, main_freq,
-        guardrail_max_pos_jump_m, guardrail_max_accel_norm_ms2);
+        config_path, msr_freq, main_freq, rotation_gap_threshold_deg_s);
 }
 
 FastLio::~FastLio()
@@ -98,10 +104,11 @@ void FastLio::write_to_file(const double &time)
     exec_time_file << time << "\n";
 }
 
-void FastLio::set_world_pose_vel(double px, double py, double pz,
-                                 double vx, double vy, double vz)
+void FastLio::set_world_pose_quat_vel(double px, double py, double pz,
+                                      double qx, double qy, double qz, double qw,
+                                      double vx, double vy, double vz)
 {
-    laser_mapping->set_world_pose_vel(px, py, pz, vx, vy, vz);
+    laser_mapping->set_world_pose_quat_vel(px, py, pz, qx, qy, qz, qw, vx, vy, vz);
 }
 
 std::vector<double> FastLio::get_world_quat() const
@@ -112,6 +119,21 @@ std::vector<double> FastLio::get_world_quat() const
 double FastLio::get_world_vel_norm() const
 {
     return laser_mapping->get_world_vel_norm();
+}
+
+void FastLio::set_icp_omega_body(double wx_rad_s, double wy_rad_s, double wz_rad_s)
+{
+    laser_mapping->set_icp_omega_body(wx_rad_s, wy_rad_s, wz_rad_s);
+}
+
+void FastLio::clear_icp_omega()
+{
+    laser_mapping->clear_icp_omega();
+}
+
+void FastLio::set_rotation_gap_threshold_deg_s(double threshold)
+{
+    laser_mapping->set_rotation_gap_threshold_deg_s(threshold);
 }
 
 #endif

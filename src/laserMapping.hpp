@@ -65,8 +65,7 @@ class LaserMapping
 public:
     LaserMapping(const std::string& config_path = CONFIG_FILE_PATH,
                  double msr_freq = 50.0, double main_freq = 5000.0,
-                 double guardrail_max_pos_jump_m_ = 0.5,
-                 double guardrail_max_accel_norm_ms2_ = 30.0);
+                 double rotation_gap_threshold_deg_s_ = 10.0);
     ~LaserMapping();
 
     void livox_pcl_cbk(const CstMsgConstPtr &msg);
@@ -74,17 +73,17 @@ public:
     void run(OdomMsgPtr &msg_in);
 
     // External-correction hooks (paired API exposed via FastLio wrapper).
-    void set_world_pose_vel(double px, double py, double pz,
-                            double vx, double vy, double vz) {
+    void set_world_pose_quat_vel(double px, double py, double pz,
+                                 double qx, double qy, double qz, double qw,
+                                 double vx, double vy, double vz) {
         state_ikfom s = kf.get_x();
         s.pos[0] = px; s.pos[1] = py; s.pos[2] = pz;
         s.vel[0] = vx; s.vel[1] = vy; s.vel[2] = vz;
+        Eigen::Quaterniond q(qw, qx, qy, qz);
+        q.normalize();
+        s.rot = SO3(q);
         kf.change_x(s);
         state_point = s;
-        // last_good_state must follow — otherwise the guardrail will
-        // immediately roll BACK to the wrong place on its next reject.
-        last_good_state = s;
-        last_good_state_valid = true;
     }
     std::vector<double> get_world_quat() const {
         state_ikfom s = kf.get_x();
@@ -94,6 +93,20 @@ public:
     double get_world_vel_norm() const {
         state_ikfom s = kf.get_x();
         return std::sqrt(s.vel[0]*s.vel[0] + s.vel[1]*s.vel[1] + s.vel[2]*s.vel[2]);
+    }
+
+    // Preventative rotational-gap map-skip. Caller supplies ICP's
+    // body-frame angular velocity (rad/s) before each process(). After
+    // the IESKF update we compute its own body-frame ω, take the
+    // magnitude of (ω_ieskf − ω_icp) in deg/s, and skip map_incremental
+    // when it exceeds rotation_gap_threshold_deg_s.
+    void set_icp_omega_body(double wx, double wy, double wz) {
+        icp_omega_body = {wx, wy, wz};
+        icp_omega_valid = true;
+    }
+    void clear_icp_omega() { icp_omega_valid = false; }
+    void set_rotation_gap_threshold_deg_s(double threshold) {
+        rotation_gap_threshold_deg_s = threshold;
     }
 
     /** Return the full undistorted scan transformed to world frame. */
@@ -262,14 +275,15 @@ private:
     // from the dimos NativeModule CLI args). Zero or negative disables that
     // particular check.
     //
-    // `guardrail_max_accel_norm_ms2` caps the per-update velocity correction
-    // magnitude in physical-acceleration units — the check is
-    //   (vel_post - vel_pre).norm() / scan_dt > guardrail_max_accel_norm_ms2
-    // which lets steady-state high velocities through (a robot on a train at
-    // 200 mph: tiny per-scan corrections, never trips) but catches the bug
-    // pattern where IESKF applies a 100+ m/s correction in a single update.
-    double guardrail_max_pos_jump_m = 0.5;
-    double guardrail_max_accel_norm_ms2 = 30.0;
+    // Rotational-gap preventative map-skip. After each IESKF update we
+    // compute the IESKF's own body-frame ω from the quaternion delta,
+    // compare its magnitude difference against the ICP body-frame ω
+    // (supplied per-scan by main.cpp), and if it exceeds the threshold
+    // we skip map_incremental for that scan. This stops the gravity-leak
+    // reinforcing loop at its seed: bad rotation never poisons the map.
+    double rotation_gap_threshold_deg_s = 10.0;
+    Eigen::Vector3d icp_omega_body = Eigen::Vector3d::Zero();
+    bool icp_omega_valid = false;
     double timediff_lidar_wrt_imu = 0.0;
 
     float DET_RANGE = 300.0f;
@@ -317,8 +331,6 @@ private:
     MeasureGroup Measures;
     esekfom::esekf<state_ikfom, 12, input_ikfom> kf;
     state_ikfom state_point;
-    state_ikfom last_good_state;        // last accepted post-update state (for guardrail rollback)
-    bool last_good_state_valid = false; // false until first non-rejected scan
     double last_scan_end_time = 0.0;    // for computing scan_dt in the accel guardrail check
     vect3 pos_lid;
 
@@ -335,7 +347,7 @@ private:
 };
 
 LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, double main_freq_,
-                           double guardrail_max_pos_jump_m_, double guardrail_max_accel_norm_ms2_) : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(new PointCloudXYZI()), feats_undistort(new PointCloudXYZI()),\
+                           double rotation_gap_threshold_deg_s_) : extrinT(3, 0.0), extrinR(9, 0.0), featsFromMap(new PointCloudXYZI()), feats_undistort(new PointCloudXYZI()),\
                             XAxisPoint_body(LIDAR_SP_LEN, 0.0, 0.0), XAxisPoint_world(LIDAR_SP_LEN, 0.0, 0.0),\
                             position_last(Zero3d), Lidar_T_wrt_IMU(Zero3d), Lidar_R_wrt_IMU(Eye3d),\
                             p_pre(new Preprocess()), p_imu(new ImuProcess())
@@ -366,8 +378,7 @@ LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, dou
     time_diff_lidar_to_imu        = config["common"]["time_offset_lidar_to_imu"].as<double>();
     msr_freq                      = msr_freq_;
     main_freq                     = main_freq_;
-    guardrail_max_pos_jump_m      = guardrail_max_pos_jump_m_;
-    guardrail_max_accel_norm_ms2  = guardrail_max_accel_norm_ms2_;
+    rotation_gap_threshold_deg_s  = rotation_gap_threshold_deg_s_;
     p_pre->N_SCANS                = config["preprocess"]["scan_line"].as<int>();
     p_pre->blind                  = config["preprocess"]["blind"].as<double>();
     acc_cov                       = config["mapping"]["acc_cov"].as<double>();
@@ -920,48 +931,40 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         kf.update_iterated_dyn_share_modified(LASER_POINT_COV, solve_H_time);
         state_point = kf.get_x();
 
-        // Caps come from the constructor (FastLio2Config in dimos → CLI args
-        // on the native binary → FastLio ctor → here). A zero or negative cap
-        // disables that particular check.
+        // Rotational-gap preventative map-skip.
         //
-        // pos_jump check: per-update position correction magnitude (m).
-        // accel check: per-update velocity correction magnitude divided by
-        //   scan_dt, interpreted as an effective acceleration (m/s²). This
-        //   form lets the IESKF track steady-state high velocities — a
-        //   platform that physically accelerated to 200 mph would do it via
-        //   thousands of clean updates with tiny per-update delta-v, and
-        //   never trip the cap. The divergence pattern we're guarding
-        //   against is a single-update velocity jump of 100+ m/s, ~1000 m/s²,
-        //   which the cap catches regardless of the platform's velocity
-        //   envelope.
-        const double pos_jump = (state_point.pos - state_pre_update.pos).norm();
-        const double dvel = (state_point.vel - state_pre_update.vel).norm();
-        // First-scan fallback: no prior scan_end_time yet → assume nominal
-        // 100 ms (10 Hz scan rate). Subsequent scans use the actual delta.
+        // Compute the IESKF's own body-frame angular velocity from
+        //   ΔR_body = R_pre^T · R_post  (in body frame of the prior scan)
+        // taking the axis-angle, dividing by scan_dt → ω_ieskf (rad/s).
+        // Compare against the ICP body-frame ω passed in by main.cpp
+        // before this process() call. If || ω_ieskf − ω_icp || (deg/s)
+        // exceeds the configured threshold, skip map_incremental for
+        // this scan: the IESKF and ICP disagree enough on rotation that
+        // we don't trust the IESKF pose enough to poison the map with it.
         const double scan_dt = (last_scan_end_time > 0.0)
             ? std::max(lidar_end_time - last_scan_end_time, 1e-3)
             : 0.1;
-        const double accel = dvel / scan_dt;
-        bool guardrail_rejected = false;
-        const bool pos_jump_exceeds = guardrail_max_pos_jump_m > 0
-            && pos_jump > guardrail_max_pos_jump_m;
-        const bool accel_exceeds = guardrail_max_accel_norm_ms2 > 0
-            && accel > guardrail_max_accel_norm_ms2;
-        if (pos_jump_exceeds || accel_exceeds) {
-            fprintf(stderr,
-                "[fastlio] guardrail: rejecting scan update (pos_jump=%.2fm, dvel=%.2fm/s, "
-                "scan_dt=%.3fs, accel=%.2fm/s^2) — rollback to last good + freeze\n",
-                pos_jump, dvel, scan_dt, accel);
-            state_ikfom s_clean = last_good_state_valid ? last_good_state : state_pre_update;
-            s_clean.vel.setZero();
-            kf.change_x(s_clean);
-            state_point = s_clean;
-            guardrail_rejected = true;
-        } else {
-            last_good_state = state_point;
-            last_good_state_valid = true;
+        bool rotation_gap_skip = false;
+        double gap_deg_s = 0.0;
+        if (icp_omega_valid && rotation_gap_threshold_deg_s > 0) {
+            Eigen::Matrix3d R_pre = state_pre_update.rot.toRotationMatrix();
+            Eigen::Matrix3d R_post = state_point.rot.toRotationMatrix();
+            Eigen::Matrix3d dR_body = R_pre.transpose() * R_post;
+            Eigen::AngleAxisd aa(dR_body);
+            Eigen::Vector3d ieskf_omega_body = aa.axis() * (aa.angle() / scan_dt);
+            const double gap_rad_s = (ieskf_omega_body - icp_omega_body).norm();
+            gap_deg_s = gap_rad_s * 180.0 / M_PI;
+            if (gap_deg_s > rotation_gap_threshold_deg_s) {
+                rotation_gap_skip = true;
+                fprintf(stderr,
+                    "[fastlio] rotation_gap: skipping map_incremental "
+                    "(|ω_ieskf−ω_icp|=%.1f°/s > %.1f°/s)\n",
+                    gap_deg_s, rotation_gap_threshold_deg_s);
+            }
         }
         last_scan_end_time = lidar_end_time;
+        // Per-scan icp_omega is consumed; main.cpp re-publishes each scan.
+        icp_omega_valid = false;
 
         euler_cur = SO3ToEuler(state_point.rot);
         pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
@@ -972,10 +975,11 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         double t_update_end = omp_get_wtime();
 
         update_odometry(msg_in);
-        // Skip map insertion on rejected scans so the kdtree doesn't accumulate points at a
-        // divergent pose — this is what breaks FAST-LIO's reinforcing-loop divergence (bad
-        // scan inserted → next NN search confirms wrong pose → snowball).
-        if (!guardrail_rejected) {
+        // Skip map insertion when the rotational gap check tripped — same
+        // reinforcing-loop break that the old accel/vel guardrail provided,
+        // but gated on the seed cause (orientation disagreement) rather than
+        // a symptom (linear-velocity blowup).
+        if (!rotation_gap_skip) {
             map_incremental();
         }
         double t5 = omp_get_wtime();
