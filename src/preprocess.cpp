@@ -154,7 +154,7 @@ void Preprocess::avia_handler(const CstMsgConstPtr &msg)
       // pl_surf += pl;
     }
     time += omp_get_wtime() - t0;
-    if (fastlio_debug) printf("Feature extraction time: %lf \n", time / count);
+    if (fastlio_debug) { printf("Feature extraction time: %lf \n", time / count); }
   }
   else
   {
@@ -366,7 +366,7 @@ void Preprocess::give_feature(pcl::PointCloud<PointType> &pl, vector<orgtype> &t
   int plsize2;
   if(plsize == 0)
   {
-    if (fastlio_debug) printf("something wrong\n");
+    if (fastlio_debug) { printf("something wrong\n"); }
     return;
   }
   uint head = 0;

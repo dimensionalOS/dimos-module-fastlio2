@@ -200,7 +200,7 @@ void KD_TREE<PointType>::start_thread()
     pthread_mutex_init(&working_flag_mutex, NULL);
     pthread_mutex_init(&search_flag_mutex, NULL);
     pthread_create(&rebuild_thread, NULL, multi_thread_ptr, (void *)this);
-    if (fastlio_debug) printf("Multi thread started \n");
+    if (fastlio_debug) { printf("Multi thread started \n"); }
 }
 
 template <typename PointType>
@@ -364,7 +364,7 @@ void KD_TREE<PointType>::multi_thread_rebuild()
         pthread_mutex_unlock(&termination_flag_mutex_lock);
         usleep(100);
     }
-    if (fastlio_debug) printf("Rebuild thread terminated normally\n");
+    if (fastlio_debug) { printf("Rebuild thread terminated normally\n"); }
 }
 
 template <typename PointType>

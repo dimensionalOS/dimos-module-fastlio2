@@ -919,7 +919,7 @@ public:
 			if(t > 1 || i == maximum_iter - 1)
 			{
 				L_ = P_;
-				if (fastlio_debug) std::cout << "iteration time:" << t << "," << i << std::endl;
+				if (fastlio_debug) { std::cout << "iteration time:" << t << "," << i << std::endl; }
 		
 				Matrix<scalar_type, 3, 3> res_temp_SO3;
 				MTK::vect<3, scalar_type> seg_SO3;
@@ -1125,7 +1125,7 @@ public:
 			if(t > 1 || i == maximum_iter - 1)
 			{
 				L_ = P_;
-				if (fastlio_debug) std::cout << "iteration time:" << t << "," << i << std::endl;
+				if (fastlio_debug) { std::cout << "iteration time:" << t << "," << i << std::endl; }
 		
 				Matrix<scalar_type, 3, 3> res_temp_SO3;
 				MTK::vect<3, scalar_type> seg_SO3;
@@ -1329,7 +1329,7 @@ public:
 			if(t > 1 || i == maximum_iter - 1)
 			{
 				L_ = P_;
-				if (fastlio_debug) std::cout << "iteration time:" << t << "," << i << std::endl;
+				if (fastlio_debug) { std::cout << "iteration time:" << t << "," << i << std::endl; }
 		
 				Matrix<scalar_type, 3, 3> res_temp_SO3;
 				MTK::vect<3, scalar_type> seg_SO3;
@@ -1537,7 +1537,7 @@ public:
 			if(t > 1 || i == maximum_iter - 1)
 			{
 				L_ = P_;
-				if (fastlio_debug) std::cout << "iteration time:" << t << "," << i << std::endl;
+				if (fastlio_debug) { std::cout << "iteration time:" << t << "," << i << std::endl; }
 		
 				Matrix<scalar_type, 3, 3> res_temp_SO3;
 				MTK::vect<3, scalar_type> seg_SO3;
@@ -1995,7 +1995,7 @@ private:
         double pos_dis = temp_vec.block( 3, 0, 3, 1 ).norm();
         if ( angular_dis >= 20 || pos_dis > 1 )
         {
-            if (fastlio_debug) printf( "Angular dis = %.2f, pos dis = %.2f\r\n", angular_dis, pos_dis );
+            if (fastlio_debug) { printf( "Angular dis = %.2f, pos dis = %.2f\r\n", angular_dis, pos_dis ); }
             temp_vec.setZero();
         }
         return temp_vec;
