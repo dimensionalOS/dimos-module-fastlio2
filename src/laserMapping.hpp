@@ -62,6 +62,10 @@ public:
     void imu_cbk(const ImuConstPtr &msg_in);
     void run(OdomMsgPtr &msg_in);
 
+    /// Override the YAML-configured velocity cap from the embedding
+    /// application (e.g. dimos passes it via CLI). Zero disables the cap.
+    void set_max_velocity_norm_ms(double v) { max_velocity_norm_ms = v; }
+
     /** Return the full undistorted scan transformed to world frame. */
     PointCloudXYZI::Ptr get_world_cloud() const {
         if (!feats_undistort || feats_undistort->empty()) return nullptr;
@@ -276,6 +280,15 @@ private:
     MeasureGroup Measures;
     esekfom::esekf<state_ikfom, 12, input_ikfom> kf;
     state_ikfom state_point;
+    // Post-IESKF-update velocity sanity gate. After each measurement
+    // update, if state_point.vel exceeds max_velocity_norm_ms, restore
+    // the last accepted state with vel=0 and skip map_incremental() —
+    // breaks the reinforcing-loop divergence (bad scan → corrupted
+    // map → next NN search confirms wrong pose → snowball). Configure
+    // via YAML key mapping.max_velocity_norm_ms; zero disables.
+    double max_velocity_norm_ms = 0.0;
+    state_ikfom last_good_state;
+    bool last_good_state_valid = false;
     vect3 pos_lid;
 
     custom_messages::Odometry odomAftMapped;
@@ -337,6 +350,12 @@ LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, dou
     bool gravity_align_en = true;
     if (config["mapping"]["gravity_align"]) {
         gravity_align_en = config["mapping"]["gravity_align"].as<bool>();
+    }
+    // Optional: hard velocity cap on the post-IESKF-update state. Zero
+    // (default) disables. Size to the platform's physical envelope —
+    // ~3.1 m/s for the Go2 quadruped; UAV/vehicle values much higher.
+    if (config["mapping"]["max_velocity_norm_ms"]) {
+        max_velocity_norm_ms = config["mapping"]["max_velocity_norm_ms"].as<double>();
     }
     NUM_MAX_ITERATIONS            = 4;
     filter_size_corner_min        = 0.5;
@@ -933,8 +952,36 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
         /*** iterated state estimation ***/
         double t_update_start = omp_get_wtime();
         double solve_H_time = 0;
+        // Snapshot state before the update so the velocity cap below can
+        // roll back to the last accepted state when the post-update
+        // velocity is unphysical.
+        state_ikfom state_pre_update = kf.get_x();
         kf.update_iterated_dyn_share_modified(LASER_POINT_COV, solve_H_time);
         state_point = kf.get_x();
+
+        // Post-update velocity cap. When |v_world| > max_velocity_norm_ms,
+        // restore the last accepted state with vel=0 and skip the map
+        // insert below. The map_incremental skip is the load-bearing
+        // part — it breaks the reinforcing-loop divergence (bad scan
+        // inserted into ikd-tree → next NN search confirms the wrong
+        // pose → snowball into multi-km/s velocity).
+        bool velocity_cap_skip = false;
+        if (max_velocity_norm_ms > 0.0) {
+            const double vnorm = state_point.vel.norm();
+            if (vnorm > max_velocity_norm_ms) {
+                state_ikfom s_clean = last_good_state_valid
+                                          ? last_good_state
+                                          : state_pre_update;
+                s_clean.vel.setZero();
+                kf.change_x(s_clean);
+                state_point = s_clean;
+                velocity_cap_skip = true;
+            } else {
+                last_good_state = state_point;
+                last_good_state_valid = true;
+            }
+        }
+
         euler_cur = SO3ToEuler(state_point.rot);
         pos_lid = state_point.pos + state_point.rot * state_point.offset_T_L_I;
         geoQuat.x = state_point.rot.coeffs()[0];
@@ -949,7 +996,9 @@ void LaserMapping::run(OdomMsgPtr &msg_in)
 
         /*** add the feature points to map kdtree ***/
         t3 = omp_get_wtime();
-        map_incremental();
+        if (!velocity_cap_skip) {
+            map_incremental();
+        }
         t5 = omp_get_wtime();
     }
 }

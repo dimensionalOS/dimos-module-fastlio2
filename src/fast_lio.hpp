@@ -18,6 +18,9 @@ public:
     PointCloudXYZI::Ptr get_world_cloud() const { return laser_mapping->get_world_cloud(); }
     void write_to_file(const std::vector<double> &pose);
     void write_to_file(const double &time);
+
+    /// Override the YAML-configured velocity cap. Zero disables.
+    void set_max_velocity_norm_ms(double v) { laser_mapping->set_max_velocity_norm_ms(v); }
 private:
     OdomMsgPtr odom_result;
     ofstream output_file, exec_time_file;
