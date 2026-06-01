@@ -285,9 +285,11 @@ private:
     // update, if state_point.vel exceeds max_velocity_norm_ms, restore
     // the last accepted state with vel=0 and skip map_incremental() —
     // breaks the reinforcing-loop divergence (bad scan → corrupted
-    // map → next NN search confirms wrong pose → snowball). Configure
-    // via YAML key mapping.max_velocity_norm_ms; zero disables.
-    double max_velocity_norm_ms = 0.0;
+    // map → next NN search confirms wrong pose → snowball into
+    // multi-km/s runaway). Default 100 m/s is well above any robot's
+    // physical envelope but catches divergence; override via YAML
+    // key mapping.max_velocity_norm_ms (zero disables).
+    double max_velocity_norm_ms = 100.0;
     state_ikfom last_good_state;
     bool last_good_state_valid = false;
     vect3 pos_lid;
