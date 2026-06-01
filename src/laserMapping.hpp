@@ -21,6 +21,7 @@
 #include "IMU_Processing.hpp"
 #include "preprocess.h"
 #include "msgs.h"
+#include "fast_lio_debug.hpp"
 
 using custom_messages::ImuConstPtr;
 using custom_messages::ImuPtr;
@@ -553,21 +554,21 @@ void LaserMapping::livox_pcl_cbk(const CstMsgConstPtr &msg)
     // std::cout << msg->header.stamp.toSec() << std::endl;
     if (msg->header.stamp.toSec() < last_timestamp_lidar)
     {
-        std::cout << "lidar loop back, clear buffer" << std::endl;
+        if (fastlio_debug) std::cout << "lidar loop back, clear buffer" << std::endl;
         lidar_buffer.clear();
     }
     last_timestamp_lidar = msg->header.stamp.toSec();
     
     if (!time_sync_en && abs(last_timestamp_imu - last_timestamp_lidar) > 10.0 && !imu_buffer.empty() && !lidar_buffer.empty() )
     {
-        printf("IMU and LiDAR not Synced, IMU time: %lf, lidar header time: %lf \n",last_timestamp_imu, last_timestamp_lidar);
+        if (fastlio_debug) printf("IMU and LiDAR not Synced, IMU time: %lf, lidar header time: %lf \n",last_timestamp_imu, last_timestamp_lidar);
     }
 
     if (time_sync_en && !timediff_set_flg && abs(last_timestamp_lidar - last_timestamp_imu) > 1 && !imu_buffer.empty())
     {
         timediff_set_flg = true;
         timediff_lidar_wrt_imu = last_timestamp_lidar + 0.1 - last_timestamp_imu;
-        printf("Self sync IMU and LiDAR, time diff is %.10lf \n", timediff_lidar_wrt_imu);
+        if (fastlio_debug) printf("Self sync IMU and LiDAR, time diff is %.10lf \n", timediff_lidar_wrt_imu);
     }
 
     PointCloudXYZI::Ptr  ptr(new PointCloudXYZI());
@@ -631,7 +632,7 @@ bool LaserMapping::sync_packages(MeasureGroup &meas)
         if (meas.lidar->points.size() <= 1) // time too little
         {
             lidar_end_time = meas.lidar_beg_time + lidar_mean_scantime;
-            std::cout << "Too few input point cloud!\n";
+            if (fastlio_debug) std::cout << "Too few input point cloud!\n";
             // ROS_WARN("Too few input point cloud!\n");
         }
         else if (meas.lidar->points.back().curvature / double(1000) < 0.5 * lidar_mean_scantime)

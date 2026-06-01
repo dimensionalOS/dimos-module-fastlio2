@@ -1,5 +1,10 @@
 #include "preprocess.h"
 #include "pcl_custom.h"
+#include "fast_lio_debug.hpp"
+
+// Single definition of the FAST-LIO runtime debug flag. Default off so that
+// nothing besides real errors prints unless the host explicitly opts in.
+bool fastlio_debug = false;
 
 #define RETURN0     0x00
 #define RETURN0AND1 0x10
@@ -149,7 +154,7 @@ void Preprocess::avia_handler(const CstMsgConstPtr &msg)
       // pl_surf += pl;
     }
     time += omp_get_wtime() - t0;
-    printf("Feature extraction time: %lf \n", time / count);
+    if (fastlio_debug) printf("Feature extraction time: %lf \n", time / count);
   }
   else
   {
@@ -361,7 +366,7 @@ void Preprocess::give_feature(pcl::PointCloud<PointType> &pl, vector<orgtype> &t
   int plsize2;
   if(plsize == 0)
   {
-    printf("something wrong\n");
+    if (fastlio_debug) printf("something wrong\n");
     return;
   }
   uint head = 0;
