@@ -4,7 +4,6 @@
 #include <thread>
 #include <fstream>
 #include <csignal>
-#include <Python.h>
 #include <so3_math.h>
 #include <Eigen/Core>
 #include "IMU_Processing.hpp"

@@ -1,7 +1,7 @@
 #ifndef Estimator_H
 #define Estimator_H
 
-#include <../include/IKFoM/IKFoM_toolkit/esekfom/esekfom.hpp>
+#include "IKFoM/IKFoM_toolkit/esekfom/esekfom.hpp"
 #include "common_lib.h"
 #include "parameters.h"
 #include <pcl/point_cloud.h>
