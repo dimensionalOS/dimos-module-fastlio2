@@ -3,6 +3,7 @@
 #include <cmath>
 #include <thread>
 #include <fstream>
+#include <iomanip>
 #include <csignal>
 #include <so3_math.h>
 #include <Eigen/Core>
