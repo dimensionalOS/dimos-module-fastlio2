@@ -228,61 +228,6 @@ void lasermap_fov_segment() {
 }
 
 
-    last_timestamp_lidar = msg->header.stamp.sec;
-
-    PointCloudXYZI::Ptr ptr(new PointCloudXYZI());
-    PointCloudXYZI::Ptr ptr_div(new PointCloudXYZI());
-    double time_div = get_time_sec(msg->header.stamp);
-    p_pre->process(msg, ptr);
-    if (cut_frame) {
-        sort(ptr->points.begin(), ptr->points.end(), time_list);
-
-        for (int i = 0; i < ptr->size(); i++) {
-            ptr_div->push_back(ptr->points[i]);
-            // cout << "check time:" << ptr->points[i].curvature << endl;
-            if (ptr->points[i].curvature / double(1000) + get_time_sec(msg->header.stamp) - time_div >
-                cut_frame_time_interval) {
-                if (ptr_div->size() < 1) continue;
-                PointCloudXYZI::Ptr ptr_div_i(new PointCloudXYZI());
-                *ptr_div_i = *ptr_div;
-                lidar_buffer.push_back(ptr_div_i);
-                time_buffer.push_back(time_div);
-                time_div += ptr->points[i].curvature / double(1000);
-                ptr_div->clear();
-            }
-        }
-        if (!ptr_div->empty()) {
-            lidar_buffer.push_back(ptr_div);
-            // ptr_div->clear();
-            time_buffer.push_back(time_div);
-        }
-    } else if (con_frame) {
-        if (frame_ct == 0) {
-            time_con = last_timestamp_lidar; //get_time_sec(msg->header.stamp);
-        }
-        if (frame_ct < con_frame_num) {
-            for (int i = 0; i < ptr->size(); i++) {
-                ptr->points[i].curvature += (last_timestamp_lidar - time_con) * 1000;
-                ptr_con->push_back(ptr->points[i]);
-            }
-            frame_ct++;
-        } else {
-            PointCloudXYZI::Ptr ptr_con_i(new PointCloudXYZI());
-            *ptr_con_i = *ptr_con;
-            lidar_buffer.push_back(ptr_con_i);
-            double time_con_i = time_con;
-            time_buffer.push_back(time_con_i);
-            ptr_con->clear();
-            frame_ct = 0;
-        }
-    } else {
-        lidar_buffer.emplace_back(ptr);
-        time_buffer.emplace_back(get_time_sec(msg->header.stamp));
-    }
-    s_plot11[scan_count] = omp_get_wtime() - preprocess_start_time;
-    mtx_buffer.unlock();
-    sig_buffer.notify_all();
-}
 
 void livox_pcl_cbk(const CstMsgConstPtr &msg) {
     mtx_buffer.lock();
@@ -574,8 +519,6 @@ void LaserMapping::setup(const std::string& config_path) {
     readParameters(config_path);
     cout << "lidar_type: " << lidar_type << endl;
 
-    path.header.stamp = get_ros_time(lidar_end_time);
-    path.header.frame_id = odom_header_frame_id;
 
     /*** variables definition for counting ***/
     frame_num = 0;
@@ -655,7 +598,7 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
             p_imu->Process(Measures, feats_undistort);
 
             if (feats_undistort->empty() || feats_undistort == nullptr) {
-                continue;
+                return false;
             }
             if (imu_en) {
                 if (!p_imu->gravity_align_) {
@@ -726,11 +669,10 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                 for (size_t i = 0; i < feats_down_world->size(); i++) {
                     init_feats_world->points.emplace_back(feats_down_world->points[i]);
                 }
-                if (init_feats_world->size() < init_map_size) continue;
+                if (init_feats_world->size() < init_map_size) return false;
                 ikdtree.Build(init_feats_world->points);
                 init_map = true;
-                publish_init_kdtree(pubLaserCloudMap); //(pubLaserCloudFullRes);
-                continue;
+                return false;
             }
             /*** ICP and Kalman filter update ***/
             normvec->resize(feats_down_size);
