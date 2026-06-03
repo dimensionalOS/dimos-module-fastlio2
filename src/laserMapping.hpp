@@ -62,6 +62,7 @@ mutex mtx_buffer;
 condition_variable sig_buffer;
 
 string root_dir = ROOT_DIR;
+bool fastlio_debug = false;  // definition for extern in fast_lio_debug.hpp (used by LCM main.cpp)
 
 int feats_down_size = 0, time_log_counter = 0, scan_count = 0, publish_count = 0;
 
