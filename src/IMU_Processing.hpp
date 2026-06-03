@@ -5,7 +5,6 @@
 #include <thread>
 #include <fstream>
 #include <csignal>
-#include <rclcpp/rclcpp.hpp>
 #include <so3_math.h>
 #include <Eigen/Eigen>
 #include <common_lib.h>
@@ -13,14 +12,8 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <condition_variable>
-#include <nav_msgs/msg/odometry.hpp>
 #include <pcl/common/transforms.h>
 #include <pcl/kdtree/kdtree_flann.h>
-#include <tf2_ros/transform_broadcaster.h>
-#include <pcl_conversions/pcl_conversions.h>
-#include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <geometry_msgs/msg/vector3.hpp>
 
 /// *************Preconfiguration
 
@@ -57,12 +50,10 @@ private:
 
     V3D mean_gyr;
     int init_iter_num = 1;
-    rclcpp::Logger logger;
 };
 
 ImuProcess::ImuProcess()
-        : b_first_frame_(true), imu_need_init_(true), gravity_align_(false),
-          logger(rclcpp::get_logger("laserMapping")) {
+        : b_first_frame_(true), imu_need_init_(true), gravity_align_(false) {
     imu_en = true;
     init_iter_num = 1;
     mean_acc = V3D(0, 0, -1.0);
@@ -72,7 +63,7 @@ ImuProcess::ImuProcess()
 ImuProcess::~ImuProcess() {}
 
 void ImuProcess::Reset() {
-    RCLCPP_WARN(logger, "Reset ImuProcess");
+    printf("Reset ImuProcess");
     mean_acc = V3D(0, 0, -1.0);
     mean_gyr = V3D(0, 0, 0);
     imu_need_init_ = true;
@@ -82,7 +73,7 @@ void ImuProcess::Reset() {
 void ImuProcess::IMU_init(const MeasureGroup &meas, int &N) {
     /** 1. initializing the gravity, gyro bias, acc and gyro covariance
      ** 2. normalize the acceleration measurenments to unit gravity **/
-    RCLCPP_INFO(logger, "IMU Initializing: %.1f %%", double(N) / MAX_INI_COUNT * 100);
+    printf("IMU Initializing: %.1f %%", double(N) / MAX_INI_COUNT * 100);
     V3D cur_acc, cur_gyr;
 
     if (b_first_frame_) {
@@ -120,7 +111,7 @@ void ImuProcess::Process(const MeasureGroup &meas, const PointCloudXYZI::Ptr &cu
             imu_need_init_ = true;
 
             if (init_iter_num > MAX_INI_COUNT) {
-                RCLCPP_INFO(logger, "IMU Initializing: %.1f %%", 100.0);
+                printf("IMU Initializing: %.1f %%", 100.0);
                 imu_need_init_ = false;
                 *cur_pcl_un_ = *(meas.lidar);
             }

@@ -1,7 +1,8 @@
-#include <rclcpp/rclcpp.hpp>
-#include <pcl_conversions/pcl_conversions.h>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <livox_ros_driver2/msg/custom_msg.hpp>
+// Non-ROS: Livox CustomMsg via custom_messages; PointCloud2 lidar paths dropped.
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include "msgs.h"
+using custom_messages::CstMsgConstPtr;
 
 using namespace std;
 
@@ -141,9 +142,7 @@ public:
 
     ~Preprocess();
 
-    void process(const livox_ros_driver2::msg::CustomMsg::SharedPtr &msg, PointCloudXYZI::Ptr &pcl_out);
-
-    void process(const sensor_msgs::msg::PointCloud2::SharedPtr &msg, PointCloudXYZI::Ptr &pcl_out);
+    void process(const CstMsgConstPtr &msg, PointCloudXYZI::Ptr &pcl_out);
 
     void set(bool feat_en, int lid_type, double bld, int pfilt_num);
 
@@ -159,19 +158,9 @@ public:
 
 
 private:
-    void avia_handler(const livox_ros_driver2::msg::CustomMsg::SharedPtr &msg);
-
-    void oust64_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg);
-
-    void velodyne_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg);
-
-    void unilidar_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg);
-
-    void hesai_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg);
+    void avia_handler(const CstMsgConstPtr &msg);
 
     void give_feature(PointCloudXYZI &pl, vector<orgtype> &types);
-
-    void pub_func(PointCloudXYZI &pl, const rclcpp::Time &ct);
 
     int
     plane_judge(const PointCloudXYZI &pl, vector<orgtype> &types, uint i, uint &i_nex, Eigen::Vector3d &curr_direct);
