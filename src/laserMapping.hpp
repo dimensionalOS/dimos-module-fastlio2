@@ -323,7 +323,31 @@ void imu_cbk(const ImuConstPtr &msg_in) {
     sig_buffer.notify_all();
 }
 
+// Pop and return the front IMU sample under mtx_buffer. Reference Point-LIO
+// drains imu_deque on the SingleThreadedExecutor thread with no concurrent
+// callbacks, so its bare front()/pop_front() in the IESKF loop is safe. Here
+// imu_cbk pushes from a separate SDK/feeder thread, so every pop must take the
+// same lock or the concurrent std::deque push/pop is UB. Returning a copy lets
+// the heavy EKF math run outside the lock, so the callback thread is only
+// blocked for the pop itself (no UDP-receive starvation).
+static inline custom_messages::Imu pop_imu_front() {
+    std::lock_guard<std::mutex> buf_lock(mtx_buffer);
+    custom_messages::Imu front = *(imu_deque.front());
+    imu_deque.pop_front();
+    return front;
+}
+
 bool sync_packages(MeasureGroup &meas) {
+    // Reference Point-LIO runs the IMU/lidar callbacks and this function
+    // sequentially on a SingleThreadedExecutor (spin_some() then
+    // sync_packages()), so its lidar_buffer/imu_deque/time_buffer pops never
+    // race the callback push_backs. In this port the callbacks fire on
+    // separate SDK/feeder threads concurrently with the main loop, so the
+    // unguarded pops here were a std::deque push/pop data race (UB) that
+    // corrupted IMU samples under live CPU contention and ramped the velocity
+    // state. Hold mtx_buffer (the same lock imu_cbk/pcl_cbk take for pushes)
+    // for the whole body to restore the reference's mutual exclusion.
+    std::lock_guard<std::mutex> buf_lock(mtx_buffer);
     if (!imu_en) {
         if (!lidar_buffer.empty()) {
             meas.lidar = lidar_buffer.front();
@@ -604,6 +628,11 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
             }
             if (imu_en) {
                 if (!p_imu->gravity_align_) {
+                    // Same race as sync_packages: this pops imu_deque on the
+                    // main thread while imu_cbk pushes from a callback thread.
+                    // Guard with mtx_buffer to match the reference's executor
+                    // serialization.
+                    std::lock_guard<std::mutex> buf_lock(mtx_buffer);
                     while (Measures.lidar_beg_time > get_time_sec(imu_next.header.stamp)) {
                         imu_last = imu_next;
                         imu_next = *(imu_deque.front());
@@ -724,9 +753,7 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                         if (imu_en) {
                             while (time_current > get_time_sec(imu_next.header.stamp)) {
                                 imu_last = imu_next;
-                                imu_next = *(imu_deque.front());
-                                imu_deque.pop_front();
-                                // imu_deque.pop();
+                                imu_next = pop_imu_front();
                             }
 
                             angvel_avr
@@ -750,8 +777,7 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
 
                             /*** covariance update ***/
                             imu_last = imu_next;
-                            imu_next = *(imu_deque.front());
-                            imu_deque.pop_front();
+                            imu_next = pop_imu_front();
                             double dt = get_time_sec(imu_last.header.stamp) - time_predict_last_const;
                             kf_output.predict(dt, Q_output, input_in, true, false);
                             time_predict_last_const = get_time_sec(imu_last.header.stamp); // big problem
@@ -859,9 +885,7 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                     if (is_first_frame) {
                         while (time_current > get_time_sec(imu_next.header.stamp)) {
                             imu_last = imu_next;
-                            imu_next = *(imu_deque.front());
-                            imu_deque.pop_front();
-                            // imu_deque.pop();
+                            imu_next = pop_imu_front();
                         }
                         imu_prop_cov = true;
                         // imu_upda_cov = true;
@@ -894,8 +918,7 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                     while (time_current > get_time_sec(imu_next.header.stamp)) // && !imu_deque.empty())
                     {
                         imu_last = imu_next;
-                        imu_next = *(imu_deque.front());
-                        imu_deque.pop_front();
+                        imu_next = pop_imu_front();
                         input_in.gyro
                                 << imu_last.angular_velocity.x, imu_last.angular_velocity.y, imu_last.angular_velocity.z;
                         input_in.acc
