@@ -18,6 +18,8 @@
             eigen
             pcl
             yaml-cpp
+            glog
+            boost
             nlohmann_json
             python3
             python3Packages.matplotlib

@@ -128,17 +128,18 @@ public:
 
 	void oplus(MTK::vectview<const scalar, 3> delta, scalar scale = 1)
 	{
-		SO3_type res;
-		res.w() = MTK::exp<scalar, 3>(res.vec(), delta, scalar(scale/2));
-		vec = res.normalized().toRotationMatrix() * vec;
+		// SO3_type res;
+		// res.w() = MTK::exp<scalar, 3>(res.vec(), delta, scalar(scale/2));
+		vec = SO3_type::exp(delta) * vec; // res.normalized().toRotationMatrix() * vec;
 	}
 	
 	void boxplus(MTK::vectview<const scalar, 2> delta, scalar scale=1) {
 		Eigen::Matrix<scalar, 3, 2> Bx;
 		S2_Bx(Bx);
-		vect_type Bu = Bx*delta;SO3_type res;
-		res.w() = MTK::exp<scalar, 3>(res.vec(), Bu, scalar(scale/2));
-		vec = res.normalized().toRotationMatrix() * vec;
+		vect_type Bu = Bx*delta;
+		// SO3_type res;
+		// res.w() = MTK::exp<scalar, 3>(res.vec(), Bu, scalar(scale/2));
+		vec = SO3_type::exp(delta) * vec; // res.normalized().toRotationMatrix() * vec;
 	} 
 	
 	void boxminus(MTK::vectview<scalar, 2> res, const S2<scalar, den, num, S2_typ>& other) const {
@@ -283,9 +284,9 @@ public:
 		}
 		else{
 			vect_type Bu = Bx*delta;
-			SO3_type exp_delta;
-			exp_delta.w() = MTK::exp<scalar, 3>(exp_delta.vec(), Bu, scalar(1/2));
-			res = -exp_delta.normalized().toRotationMatrix()*MTK::hat(vec)*MTK::A_matrix(Bu).transpose()*Bx;
+			// SO3_type exp_delta;
+			// exp_delta.w() = MTK::exp<scalar, 3>(exp_delta.vec(), Bu, scalar(1/2));
+			res = -SO3_type::exp(Bu)*MTK::hat(vec)*MTK::A_matrix(Bu).transpose()*Bx; // exp_delta.normalized().toRotationMatrix()
 		}
 	}
 
@@ -300,7 +301,7 @@ public:
 	friend S2<scalar, den, num, S2_typ> operator*(const SO3<scalar>& rot, const S2<scalar, den, num, S2_typ>& dir)
 	{
 		S2<scalar, den, num, S2_typ> ret;
-		ret.vec = rot.normalized() * dir.vec;
+		ret.vec = rot * dir.vec;
 		return ret;
 	}
 	

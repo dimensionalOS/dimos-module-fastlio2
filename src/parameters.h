@@ -7,6 +7,20 @@
 #include <cstring>
 #include <string>
 #include "preprocess.h"
+#include "common_lib.h"
+#include <ivox/ivox3d.h>
+
+// #define IVOX_NODE_TYPE_PHC
+#ifdef IVOX_NODE_TYPE_PHC
+    using IVoxType = faster_lio::IVox<3, faster_lio::IVoxNodeType::PHC, PointType>;
+#else
+    using IVoxType = faster_lio::IVox<3, faster_lio::IVoxNodeType::DEFAULT, PointType>;
+#endif
+
+extern IVoxType::Options ivox_options_;
+extern int ivox_nearby_type;
+extern state_input state_in;
+extern state_output state_out;
 
 extern bool odom_only;
 extern std::string odom_header_frame_id;
@@ -23,6 +37,8 @@ extern bool use_imu_as_input, space_down_sample;
 extern bool extrinsic_est_en, publish_odometry_without_downsample;
 extern int init_map_size, con_frame_num;
 extern double match_s, satu_acc, satu_gyro, cut_frame_time_interval;
+extern double max_velocity_norm_ms;
+extern int recovery_cooldown_scans;
 extern float plane_thr;
 extern double filter_size_surf_min, filter_size_map_min, fov_deg;
 extern double cube_len;
@@ -45,3 +61,6 @@ extern double time_lag_imu_to_lidar;
 // Non-ROS: load all parameters from a YAML config file (yaml-cpp), replacing
 // the upstream ROS declare/get_parameter machinery.
 void readParameters(const std::string &config_path);
+Eigen::Matrix<double, 3, 1> SO3ToEuler(const SO3 &orient);
+void reset_cov(Eigen::Matrix<double, 24, 24> & P_init);
+void reset_cov_output(Eigen::Matrix<double, 30, 30> & P_init_output);

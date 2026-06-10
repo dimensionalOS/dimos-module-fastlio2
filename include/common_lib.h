@@ -8,12 +8,67 @@
 #include "msgs.h"            // custom_messages (non-ROS): Imu, Odometry, Time, ...
 #include <boost/shared_ptr.hpp>
 #include <deque>
+#include <queue>
+#include "IKFoM/IKFoM_toolkit/esekfom/esekfom.hpp"
 using namespace std;
 using namespace Eigen;
 
+typedef MTK::vect<3, double> vect3;
+typedef MTK::SO3<double> SO3;
+typedef MTK::S2<double, 98090, 10000, 1> S2;
+typedef MTK::vect<1, double> vect1;
+typedef MTK::vect<2, double> vect2;
+
+MTK_BUILD_MANIFOLD(state_input,
+((vect3, pos))
+((SO3, rot))
+((SO3, offset_R_L_I))
+((vect3, offset_T_L_I))
+((vect3, vel))
+((vect3, bg))
+((vect3, ba))
+((vect3, gravity))
+);
+
+MTK_BUILD_MANIFOLD(state_output,
+((vect3, pos))
+((SO3, rot))
+((SO3, offset_R_L_I))
+((vect3, offset_T_L_I))
+((vect3, vel))
+((vect3, omg))
+((vect3, acc))
+((vect3, gravity))
+((vect3, bg))
+((vect3, ba))
+);
+
+MTK_BUILD_MANIFOLD(input_ikfom,
+((vect3, acc))
+((vect3, gyro))
+);
+
+MTK_BUILD_MANIFOLD(process_noise_input,
+((vect3, ng))
+((vect3, na))
+((vect3, nbg))
+((vect3, nba))
+);
+
+MTK_BUILD_MANIFOLD(process_noise_output,
+((vect3, vel))
+((vect3, ng))
+((vect3, na))
+((vect3, nbg))
+((vect3, nba))
+);
+
+extern esekfom::esekf<state_input, 24, input_ikfom> kf_input;
+extern esekfom::esekf<state_output, 30, input_ikfom> kf_output;
+
 #define PI_M (3.14159265358)
-#define G_m_s2 (9.81)         // Gravity const in GuangDong/China
-#define DIM_STATE (18)        // Dimension of states (Let Dim(SO(3)) = 3)
+// #define G_m_s2 (9.81)         // Gravaty const in GuangDong/China
+#define DIM_STATE (24)        // Dimension of states (Let Dim(SO(3)) = 3)
 #define DIM_PROC_N (12)       // Dimension of process noise (Let Dim(SO(3)) = 3)
 #define CUBE_LEN  (6.0)
 #define LIDAR_SP_LEN    (2)
@@ -95,11 +150,11 @@ std::vector<int> time_compressing(const PointCloudXYZI::Ptr &point_cloud)
       j = 0;
     }
   }
-  if (j == 0)
-  {
-    time_seq.emplace_back(1);
-  }
-  else
+//   if (j == 0)
+//   {
+//     time_seq.emplace_back(1);
+//   }
+//   else
   {
     time_seq.emplace_back(j+1);
   }

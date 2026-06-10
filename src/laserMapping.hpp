@@ -20,6 +20,9 @@
 #ifndef CONFIG_FILE_PATH
 #define CONFIG_FILE_PATH std::string("config/mid360.yaml")
 #endif
+
+inline const bool time_list(PointType &x, PointType &y) {return (x.curvature < y.curvature);}
+
 using custom_messages::OdomMsgPtr;
 
 // Non-ROS Point-LIO front-end. Same public shape as the FAST-LIO2 module's
@@ -64,7 +67,7 @@ condition_variable sig_buffer;
 string root_dir = ROOT_DIR;
 bool fastlio_debug = false;  // definition for extern in fast_lio_debug.hpp (used by LCM main.cpp)
 
-int feats_down_size = 0, time_log_counter = 0, scan_count = 0, publish_count = 0;
+int time_log_counter = 0, scan_count = 0, publish_count = 0;
 
 int frame_ct = 0;
 double time_update_last = 0.0, time_current = 0.0, time_predict_last_const = 0.0, t_last = 0.0;
@@ -78,8 +81,6 @@ double T1[MAXN], s_plot[MAXN], s_plot2[MAXN], s_plot3[MAXN], s_plot11[MAXN];
 double match_time = 0, solve_time = 0, propag_time = 0, update_time = 0;
 
 bool lidar_pushed = false, flg_reset = false, flg_exit = false;
-
-vector<BoxPointType> cub_needrm;
 
 deque<PointCloudXYZI::Ptr> lidar_buffer;
 deque<double> time_buffer;
@@ -166,68 +167,7 @@ void pointBodyLidarToIMU(PointType const *const pi, PointType *const po) {
     po->intensity = pi->intensity;
 }
 
-int points_cache_size = 0;
-
-void points_cache_collect() // seems for debug
-{
-    PointVector points_history;
-    ikdtree.acquire_removed_points(points_history);
-    points_cache_size = points_history.size();
-}
-
-BoxPointType LocalMap_Points;
-bool Localmap_Initialized = false;
-
-void lasermap_fov_segment() {
-    cub_needrm.shrink_to_fit();
-
-    V3D pos_LiD;
-    if (use_imu_as_input) {
-        pos_LiD = kf_input.x_.pos + kf_input.x_.rot.normalized() * Lidar_T_wrt_IMU;
-    } else {
-        pos_LiD = kf_output.x_.pos + kf_output.x_.rot.normalized() * Lidar_T_wrt_IMU;
-    }
-    if (!Localmap_Initialized) {
-        for (int i = 0; i < 3; i++) {
-            LocalMap_Points.vertex_min[i] = pos_LiD(i) - cube_len / 2.0;
-            LocalMap_Points.vertex_max[i] = pos_LiD(i) + cube_len / 2.0;
-        }
-        Localmap_Initialized = true;
-        return;
-    }
-    float dist_to_map_edge[3][2];
-    bool need_move = false;
-    for (int i = 0; i < 3; i++) {
-        dist_to_map_edge[i][0] = fabs(pos_LiD(i) - LocalMap_Points.vertex_min[i]);
-        dist_to_map_edge[i][1] = fabs(pos_LiD(i) - LocalMap_Points.vertex_max[i]);
-        if (dist_to_map_edge[i][0] <= MOV_THRESHOLD * DET_RANGE ||
-            dist_to_map_edge[i][1] <= MOV_THRESHOLD * DET_RANGE)
-            need_move = true;
-    }
-    if (!need_move) return;
-    BoxPointType New_LocalMap_Points, tmp_boxpoints;
-    New_LocalMap_Points = LocalMap_Points;
-    float mov_dist = max((cube_len - 2.0 * MOV_THRESHOLD * DET_RANGE) * 0.5 * 0.9,
-                         double(DET_RANGE * (MOV_THRESHOLD - 1)));
-    for (int i = 0; i < 3; i++) {
-        tmp_boxpoints = LocalMap_Points;
-        if (dist_to_map_edge[i][0] <= MOV_THRESHOLD * DET_RANGE) {
-            New_LocalMap_Points.vertex_max[i] -= mov_dist;
-            New_LocalMap_Points.vertex_min[i] -= mov_dist;
-            tmp_boxpoints.vertex_min[i] = LocalMap_Points.vertex_max[i] - mov_dist;
-            cub_needrm.emplace_back(tmp_boxpoints);
-        } else if (dist_to_map_edge[i][1] <= MOV_THRESHOLD * DET_RANGE) {
-            New_LocalMap_Points.vertex_max[i] += mov_dist;
-            New_LocalMap_Points.vertex_min[i] += mov_dist;
-            tmp_boxpoints.vertex_max[i] = LocalMap_Points.vertex_min[i] + mov_dist;
-            cub_needrm.emplace_back(tmp_boxpoints);
-        }
-    }
-    LocalMap_Points = New_LocalMap_Points;
-
-    points_cache_collect();
-    if (cub_needrm.size() > 0) int kdtree_delete_counter = ikdtree.Delete_Point_Boxes(cub_needrm);
-}
+// iVox manages its own LRU/grid eviction; no ikd-Tree FOV box segmentation needed.
 
 
 
@@ -438,48 +378,36 @@ bool sync_packages(MeasureGroup &meas) {
 int process_increments = 0;
 
 void map_incremental() {
-    PointVector PointToAdd;
-    PointVector PointNoNeedDownsample;
-    PointToAdd.reserve(feats_down_size);
-    PointNoNeedDownsample.reserve(feats_down_size);
+    PointVector points_to_add;
+    int cur_pts = feats_down_world->size();
+    points_to_add.reserve(cur_pts);
 
-    for (int i = 0; i < feats_down_size; i++) {
+    for (size_t i = 0; i < cur_pts; ++i) {
+        /* decide if need add to map */
+        PointType &point_world = feats_down_world->points[i];
         if (!Nearest_Points[i].empty()) {
             const PointVector &points_near = Nearest_Points[i];
+
+            Eigen::Vector3f center =
+                ((point_world.getVector3fMap() / filter_size_map_min).array().floor() + 0.5) * filter_size_map_min;
             bool need_add = true;
-            PointType downsample_result, mid_point;
-            mid_point.x = floor(feats_down_world->points[i].x / filter_size_map_min) * filter_size_map_min +
-                          0.5 * filter_size_map_min;
-            mid_point.y = floor(feats_down_world->points[i].y / filter_size_map_min) * filter_size_map_min +
-                          0.5 * filter_size_map_min;
-            mid_point.z = floor(feats_down_world->points[i].z / filter_size_map_min) * filter_size_map_min +
-                          0.5 * filter_size_map_min;
-            /* If the nearest points is definitely outside the downsample box */
-            if (fabs(points_near[0].x - mid_point.x) > 1.732 * filter_size_map_min ||
-                fabs(points_near[0].y - mid_point.y) > 1.732 * filter_size_map_min ||
-                fabs(points_near[0].z - mid_point.z) > 1.732 * filter_size_map_min) {
-                PointNoNeedDownsample.emplace_back(feats_down_world->points[i]);
-                continue;
-            }
-            /* Check if there is a point already in the downsample box */
-            float dist = calc_dist<float>(feats_down_world->points[i], mid_point);
             for (int readd_i = 0; readd_i < points_near.size(); readd_i++) {
-                /* Those points which are outside the downsample box should not be considered. */
-                if (fabs(points_near[readd_i].x - mid_point.x) < 0.5 * filter_size_map_min &&
-                    fabs(points_near[readd_i].y - mid_point.y) < 0.5 * filter_size_map_min &&
-                    fabs(points_near[readd_i].z - mid_point.z) < 0.5 * filter_size_map_min) {
+                Eigen::Vector3f dis_2_center = points_near[readd_i].getVector3fMap() - center;
+                if (fabs(dis_2_center.x()) < 0.5 * filter_size_map_min &&
+                    fabs(dis_2_center.y()) < 0.5 * filter_size_map_min &&
+                    fabs(dis_2_center.z()) < 0.5 * filter_size_map_min) {
                     need_add = false;
                     break;
                 }
             }
-            if (need_add) PointToAdd.emplace_back(feats_down_world->points[i]);
+            if (need_add) {
+                points_to_add.emplace_back(point_world);
+            }
         } else {
-            // PointToAdd.emplace_back(feats_down_world->points[i]);
-            PointNoNeedDownsample.emplace_back(feats_down_world->points[i]);
+            points_to_add.emplace_back(point_world);
         }
     }
-    int add_point_size = ikdtree.Add_Points(PointToAdd, true);
-    ikdtree.Add_Points(PointNoNeedDownsample, false);
+    ivox_->AddPoints(points_to_add);
 }
 
 
@@ -494,18 +422,20 @@ void set_posestamp(T &out) {
         out.position.x = kf_output.x_.pos(0);
         out.position.y = kf_output.x_.pos(1);
         out.position.z = kf_output.x_.pos(2);
-        out.orientation.x = kf_output.x_.rot.coeffs()[0];
-        out.orientation.y = kf_output.x_.rot.coeffs()[1];
-        out.orientation.z = kf_output.x_.rot.coeffs()[2];
-        out.orientation.w = kf_output.x_.rot.coeffs()[3];
+        Eigen::Quaterniond q(kf_output.x_.rot);
+        out.orientation.x = q.coeffs()[0];
+        out.orientation.y = q.coeffs()[1];
+        out.orientation.z = q.coeffs()[2];
+        out.orientation.w = q.coeffs()[3];
     } else {
         out.position.x = kf_input.x_.pos(0);
         out.position.y = kf_input.x_.pos(1);
         out.position.z = kf_input.x_.pos(2);
-        out.orientation.x = kf_input.x_.rot.coeffs()[0];
-        out.orientation.y = kf_input.x_.rot.coeffs()[1];
-        out.orientation.z = kf_input.x_.rot.coeffs()[2];
-        out.orientation.w = kf_input.x_.rot.coeffs()[3];
+        Eigen::Quaterniond q(kf_input.x_.rot);
+        out.orientation.x = q.coeffs()[0];
+        out.orientation.y = q.coeffs()[1];
+        out.orientation.z = q.coeffs()[2];
+        out.orientation.w = q.coeffs()[3];
     }
 }
 
@@ -571,18 +501,15 @@ void LaserMapping::setup(const std::string& config_path) {
     p_imu->lidar_type = p_pre->lidar_type = lidar_type;
     p_imu->imu_en = imu_en;
 
-    kf_input.init_dyn_share_modified(get_f_input, df_dx_input, h_model_input);
-    kf_output.init_dyn_share_modified_2h(get_f_output, df_dx_output, h_model_output, h_model_IMU_output);
-    Eigen::Matrix<double, 24, 24> P_init = MD(24, 24)::Identity() * 0.01;
-    P_init.block<3, 3>(21, 21) = MD(3, 3)::Identity() * 0.0001;
-    P_init.block<6, 6>(15, 15) = MD(6, 6)::Identity() * 0.001;
-    P_init.block<6, 6>(6, 6) = MD(6, 6)::Identity() * 0.0001;
+    ivox_ = std::make_shared<IVoxType>(ivox_options_);
+
+    kf_input.init_dyn_share_modified_2h(get_f_input, df_dx_input, h_model_input);
+    kf_output.init_dyn_share_modified_3h(get_f_output, df_dx_output, h_model_output, h_model_IMU_output);
+    Eigen::Matrix<double, 24, 24> P_init;
+    reset_cov(P_init);
     kf_input.change_P(P_init);
-    Eigen::Matrix<double, 30, 30> P_init_output = MD(30, 30)::Identity() * 0.01;
-    P_init_output.block<3, 3>(21, 21) = MD(3, 3)::Identity() * 0.0001;
-    P_init_output.block<6, 6>(6, 6) = MD(6, 6)::Identity() * 0.0001;
-    P_init_output.block<6, 6>(24, 24) = MD(6, 6)::Identity() * 0.001;
-    kf_input.change_P(P_init);
+    Eigen::Matrix<double, 30, 30> P_init_output;
+    reset_cov_output(P_init_output);
     kf_output.change_P(P_init_output);
     Q_input = process_noise_cov_input();
     Q_output = process_noise_cov_output();
@@ -655,8 +582,12 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                         p_imu->Set_init(state_in.gravity, rot_init);
                         state_in.gravity = state_out.gravity = p_imu->gravity_;
                         state_in.rot = state_out.rot = rot_init;
-                        state_in.rot.normalize();
-                        state_out.rot.normalize();
+                        // NOTE: SO3 here subclasses Eigen::Matrix3, so .normalize() does
+                        // Frobenius normalization (||M||_F=1), NOT orthonormalization. A valid
+                        // rotation has ||R||_F=sqrt(3), so calling it scales R by 1/sqrt(3),
+                        // leaving ~42% of gravity uncompensated -> vertical divergence. rot_init
+                        // is already orthonormal (from Set_init's Exp), so no normalize is needed.
+                        // hku-mars master keeps these two lines commented out for the same reason.
                         state_out.acc = -rot_init.transpose() * state_out.gravity;
                     }
                     kf_input.change_x(state_in);
@@ -670,8 +601,6 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                     state_out.acc *= -1;
                 }
             }
-            /*** Segment the map in lidar FOV ***/
-            lasermap_fov_segment();
             /*** downsample the feature points in a scan ***/
             t1 = omp_get_wtime();
             if (space_down_sample) {
@@ -685,14 +614,8 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
             time_seq = time_compressing<int>(feats_down_body);
             feats_down_size = feats_down_body->points.size();
 
-            /*** initialize the map kdtree ***/
+            /*** initialize the map with iVox ***/
             if (!init_map) {
-                if (ikdtree.Root_Node == nullptr) //
-                    // if(feats_down_size > 5)
-                {
-                    ikdtree.set_downsample_param(filter_size_map_min);
-                }
-
                 feats_down_world->resize(feats_down_size);
                 for (int i = 0; i < feats_down_size; i++) {
                     pointBodyToWorld(&(feats_down_body->points[i]), &(feats_down_world->points[i]));
@@ -701,7 +624,8 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                     init_feats_world->points.emplace_back(feats_down_world->points[i]);
                 }
                 if (init_feats_world->size() < init_map_size) return false;
-                ikdtree.Build(init_feats_world->points);
+                ivox_->AddPoints(init_feats_world->points);
+                init_feats_world.reset(new PointCloudXYZI());
                 init_map = true;
                 return false;
             }
@@ -1027,7 +951,7 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                 publish_odometry();
             }
 
-            /*** add the feature points to map kdtree ***/
+            /*** add the feature points to the iVox map ***/
             t3 = omp_get_wtime();
 
             if (feats_down_size > 4) {
@@ -1105,8 +1029,8 @@ PointCloudXYZI::Ptr LaserMapping::get_world_cloud() const {
     return cloud;
 }
 std::vector<double> LaserMapping::get_world_quat() const {
-    auto q = kf_output.x_.rot.coeffs();
-    return { q[0], q[1], q[2], q[3] };
+    Eigen::Quaterniond q(kf_output.x_.rot);
+    return { q.coeffs()[0], q.coeffs()[1], q.coeffs()[2], q.coeffs()[3] };
 }
 double LaserMapping::get_world_vel_norm() const {
     return kf_output.x_.vel.norm();
