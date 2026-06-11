@@ -561,6 +561,9 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                     // serialization.
                     std::lock_guard<std::mutex> buf_lock(mtx_buffer);
                     while (Measures.lidar_beg_time > get_time_sec(imu_next.header.stamp)) {
+                        if (imu_deque.empty()) {
+                            break;
+                        }
                         imu_last = imu_next;
                         imu_next = *(imu_deque.front());
                         imu_deque.pop_front();
@@ -676,6 +679,9 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                     if (is_first_frame) {
                         if (imu_en) {
                             while (time_current > get_time_sec(imu_next.header.stamp)) {
+                                if (imu_deque.empty()) {
+                                    break;
+                                }
                                 imu_last = imu_next;
                                 imu_next = pop_imu_front();
                             }
@@ -690,7 +696,7 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                         time_update_last = time_current;
                         time_predict_last_const = time_current;
                     }
-                    if (imu_en) {
+                    if (imu_en && !imu_deque.empty()) {
                         bool imu_comes = time_current > get_time_sec(imu_next.header.stamp);
                         while (imu_comes) {
                             imu_upda_cov = true;
@@ -700,18 +706,14 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                                     << imu_next.linear_acceleration.x, imu_next.linear_acceleration.y, imu_next.linear_acceleration.z;
 
                             /*** covariance update ***/
-                            imu_last = imu_next;
-                            imu_next = pop_imu_front();
-                            double dt = get_time_sec(imu_last.header.stamp) - time_predict_last_const;
+                            double dt = get_time_sec(imu_next.header.stamp) - time_predict_last_const;
                             kf_output.predict(dt, Q_output, input_in, true, false);
-                            time_predict_last_const = get_time_sec(imu_last.header.stamp); // big problem
-                            imu_comes = time_current > get_time_sec(imu_next.header.stamp);
-                            // if (!imu_comes)
+                            time_predict_last_const = get_time_sec(imu_next.header.stamp); // big problem
                             {
-                                double dt_cov = get_time_sec(imu_last.header.stamp) - time_update_last;
+                                double dt_cov = get_time_sec(imu_next.header.stamp) - time_update_last;
 
                                 if (dt_cov > 0.0) {
-                                    time_update_last = get_time_sec(imu_last.header.stamp);
+                                    time_update_last = get_time_sec(imu_next.header.stamp);
                                     double propag_imu_start = omp_get_wtime();
 
                                     kf_output.predict(dt_cov, Q_output, input_in, false, true);
@@ -722,6 +724,12 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
                                     solve_time += omp_get_wtime() - solve_imu_start;
                                 }
                             }
+                            if (imu_deque.empty()) {
+                                break;
+                            }
+                            imu_last = imu_next;
+                            imu_next = pop_imu_front();
+                            imu_comes = time_current > get_time_sec(imu_next.header.stamp);
                         }
                     }
 

@@ -4,7 +4,7 @@
 #define RETURN0AND1 0x10
 
 Preprocess::Preprocess()
-        : lidar_type(AVIA), blind(0.01), point_filter_num(1) {
+        : lidar_type(AVIA), blind(0.01), point_filter_num(1), det_range(1000) {
     inf_bound = 10;
     N_SCANS = 6;
     SCAN_RATE = 10;
@@ -67,17 +67,13 @@ void Preprocess::avia_handler(const CstMsgConstPtr &msg) {
                 pl_full[i].intensity = msg->points[i].reflectivity;
                 pl_full[i].curvature = msg->points[i].offset_time /
                                        float(1000000); // use curvature as time of each laser points, curvature unit: ms
-
-                if (i == 0) pl_full[i].curvature = fabs(pl_full[i].curvature) < 1.0 ? pl_full[i].curvature : 0.0;
-                else pl_full[i].curvature =
-                             fabs(pl_full[i].curvature - pl_full[i - 1].curvature) < 1.0 ? pl_full[i].curvature :
-                             pl_full[i - 1].curvature + 0.004166667f;
-
+                double dist = pl_full[i].x * pl_full[i].x + pl_full[i].y * pl_full[i].y + pl_full[i].z * pl_full[i].z;
+                if (dist < blind * blind || dist > det_range * det_range) {
+                    continue;
+                }
                 if ((abs(pl_full[i].x - pl_full[i - 1].x) > 1e-7)
                     || (abs(pl_full[i].y - pl_full[i - 1].y) > 1e-7)
-                    || (abs(pl_full[i].z - pl_full[i - 1].z) > 1e-7)
-                       && (pl_full[i].x * pl_full[i].x + pl_full[i].y * pl_full[i].y + pl_full[i].z * pl_full[i].z >
-                           (blind * blind))) {
+                    || (abs(pl_full[i].z - pl_full[i - 1].z) > 1e-7)) {
                     pl_surf.push_back(pl_full[i]);
                 }
             }
