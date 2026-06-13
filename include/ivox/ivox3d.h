@@ -307,7 +307,7 @@ std::vector<float> IVox<dim, node_type, PointType>::StatGridPoints() const {
     }
     float ave = float(sum) / num;
     float stddev = num > 1 ? sqrt((float(sum_square) - num * ave * ave) / (num - 1)) : 0;
-    return std::vector<float>{valid_num, ave, max, min, stddev};
+    return std::vector<float>{float(valid_num), ave, float(max), float(min), stddev};
 }
 
 }  // namespace faster_lio
