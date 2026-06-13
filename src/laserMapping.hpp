@@ -39,6 +39,7 @@ public:
     void livox_pcl_cbk(const CstMsgConstPtr& msg);
     void run(OdomMsgPtr& msg_in);
     PointCloudXYZI::Ptr get_world_cloud() const;
+    PointCloudXYZI::Ptr get_body_cloud() const;
     std::vector<double> get_world_quat() const;
     double get_world_vel_norm() const;
     // FAST-LIO2-specific reactive guardrail hooks: no-ops here (Point-LIO
@@ -1035,6 +1036,11 @@ PointCloudXYZI::Ptr LaserMapping::get_world_cloud() const {
         po.x = pw(0); po.y = pw(1); po.z = pw(2); po.intensity = pi.intensity;
     }
     return cloud;
+}
+PointCloudXYZI::Ptr LaserMapping::get_body_cloud() const {
+    if (!feats_undistort || feats_undistort->empty()) return nullptr;
+    // Undistorted points in the LiDAR/sensor frame — no world registration.
+    return PointCloudXYZI::Ptr(new PointCloudXYZI(*feats_undistort));
 }
 std::vector<double> LaserMapping::get_world_quat() const {
     Eigen::Quaterniond q(kf_output.x_.rot);

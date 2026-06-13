@@ -30,6 +30,7 @@ public:
     }
     const custom_messages::Odometry& get_odometry() const { return *odom_result; }
     PointCloudXYZI::Ptr get_world_cloud() const { return laser_mapping->get_world_cloud(); }
+    PointCloudXYZI::Ptr get_body_cloud() const { return laser_mapping->get_body_cloud(); }
 
     // Read-only state accessors (used by the LCM glue / ICP cross-check path).
     std::vector<double> get_world_quat() const { return laser_mapping->get_world_quat(); }
