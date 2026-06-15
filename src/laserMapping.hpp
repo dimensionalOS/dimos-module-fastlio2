@@ -26,7 +26,7 @@ inline const bool time_list(PointType &x, PointType &y) {return (x.curvature < y
 using custom_messages::OdomMsgPtr;
 
 // Non-ROS Point-LIO front-end. Same public shape as the FAST-LIO2 module's
-// LaserMapping so the LCM glue / FastLio wrapper is drop-in. Internals drive
+// LaserMapping so the LCM glue / PointLio wrapper is drop-in. Internals drive
 // Point-LIO's IMU-as-output estimator. Method bodies are out-of-line below.
 class LaserMapping {
 public:

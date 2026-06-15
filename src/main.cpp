@@ -1,5 +1,5 @@
 // Non-ROS smoke test for the Point-LIO port: feed synthetic stationary IMU +
-// a simple planar LiDAR scan through FastLio, confirm it runs and the pose
+// a simple planar LiDAR scan through PointLio, confirm it runs and the pose
 // stays bounded (no crash, finite output). Not an accuracy test — a build/run
 // sanity check. Real eval is the ruwik2 bag replay (separate harness).
 #include <iostream>
@@ -40,7 +40,7 @@ static CstMsgConstPtr make_scan(double t, unsigned base_ns) {
 int main(int argc, char** argv) {
     std::string config = (argc > 1) ? argv[1] : std::string("config/mid360.yaml");
     std::cout << "[smoke] config=" << config << std::endl;
-    FastLio fl(config);
+    PointLio fl(config);
 
     const double dt = 0.005;          // 200 Hz IMU
     double t = 1000.0;                 // arbitrary start time (s)

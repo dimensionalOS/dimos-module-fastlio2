@@ -3,21 +3,20 @@
 
 #include "laserMapping.hpp"
 
-// Same public API as the FAST-LIO2 non-ROS module's FastLio, so the dimos LCM
-// glue (main.cpp in the dimos fastlio2 native module) is drop-in. Internals
-// drive Point-LIO (IMU-as-output) instead of FAST-LIO2.
-class FastLio
+// Point-LIO (IMU-as-output) SLAM core with a thin LCM-friendly public API, so
+// the dimos glue (main.cpp in the dimos pointlio native module) is drop-in.
+class PointLio
 {
 public:
-    FastLio(const std::string& config_path = CONFIG_FILE_PATH,
-            double msr_freq = 50.0, double main_freq = 5000.0,
-            double rotation_gap_threshold_deg_s = 10.0)
+    PointLio(const std::string& config_path = CONFIG_FILE_PATH,
+             double msr_freq = 50.0, double main_freq = 5000.0,
+             double rotation_gap_threshold_deg_s = 10.0)
         : odom_result(new custom_messages::Odometry)
     {
         laser_mapping = std::make_unique<LaserMapping>(
             config_path, msr_freq, main_freq, rotation_gap_threshold_deg_s);
     }
-    ~FastLio() {}
+    ~PointLio() {}
 
     void feed_imu(const ImuConstPtr &imu_data)   { laser_mapping->imu_cbk(imu_data); }
     void feed_lidar(const CstMsgConstPtr &lidar) { laser_mapping->livox_pcl_cbk(lidar); }
