@@ -4,7 +4,7 @@
 // sanity check. Real eval is the ruwik2 bag replay (separate harness).
 #include <iostream>
 #include <cmath>
-#include "fast_lio.hpp"
+#include "pointlio.hpp"
 
 static ImuConstPtr make_imu(double t) {
     boost::shared_ptr<custom_messages::Imu> m(new custom_messages::Imu());

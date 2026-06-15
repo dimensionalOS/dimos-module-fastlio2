@@ -1,5 +1,5 @@
-#ifndef FAST_LIO_H_
-#define FAST_LIO_H_
+#ifndef POINTLIO_H_
+#define POINTLIO_H_
 
 #include "laserMapping.hpp"
 
