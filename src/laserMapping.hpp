@@ -348,8 +348,13 @@ LaserMapping::LaserMapping(const std::string& config_path, double msr_freq_, dou
     }
     NUM_MAX_ITERATIONS            = 4;
     filter_size_corner_min        = 0.5;
+    // IESKF scan / ikd-tree map voxel leaf sizes; honor the YAML when present.
     filter_size_surf_min          = 0.5;
     filter_size_map_min           = 0.5;
+    if (config["mapping"]["filter_size_surf"])
+        filter_size_surf_min      = config["mapping"]["filter_size_surf"].as<double>();
+    if (config["mapping"]["filter_size_map"])
+        filter_size_map_min       = config["mapping"]["filter_size_map"].as<double>();
     cube_len                      = 200;
     p_pre->point_filter_num       = 2;
     p_pre->feature_enabled        = false;
