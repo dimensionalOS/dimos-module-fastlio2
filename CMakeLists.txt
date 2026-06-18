@@ -12,7 +12,6 @@ add_definitions(-DMP_EN -DMP_PROC_NUM=2)
 
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
-find_package(yaml-cpp REQUIRED)
 find_package(glog REQUIRED)  # iVox (include/ivox/ivox3d.h) needs glog
 find_package(OpenMP QUIET)
 if(OpenMP_CXX_FOUND)
@@ -33,7 +32,7 @@ add_executable(pointlio_smoke
   src/parameters.cpp
   src/preprocess.cpp
 )
-target_link_libraries(pointlio_smoke ${PCL_LIBRARIES} yaml-cpp glog::glog)
+target_link_libraries(pointlio_smoke ${PCL_LIBRARIES} glog::glog)
 if(OpenMP_CXX_FOUND)
   target_link_libraries(pointlio_smoke OpenMP::OpenMP_CXX)
 endif()

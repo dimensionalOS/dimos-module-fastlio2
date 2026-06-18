@@ -17,10 +17,6 @@
 #include "parameters.h"
 #include "Estimator.h"
 
-#ifndef CONFIG_FILE_PATH
-#define CONFIG_FILE_PATH std::string("config/mid360.yaml")
-#endif
-
 inline const bool time_list(PointType &x, PointType &y) {return (x.curvature < y.curvature);}
 
 using custom_messages::OdomMsgPtr;
@@ -30,10 +26,10 @@ using custom_messages::OdomMsgPtr;
 // Point-LIO's IMU-as-output estimator. Method bodies are out-of-line below.
 class LaserMapping {
 public:
-    LaserMapping(const std::string& config_path = CONFIG_FILE_PATH,
+    LaserMapping(const PointLioParams& params = {},
                  double msr_freq = 50.0, double main_freq = 5000.0,
                  double rotation_gap_threshold_deg_s = 10.0);
-    void setup(const std::string& config_path);
+    void setup(const PointLioParams& params);
     bool run_once(custom_messages::Odometry& odom_out);
     void imu_cbk(const ImuConstPtr& msg_in);
     void livox_pcl_cbk(const CstMsgConstPtr& msg);
@@ -472,8 +468,8 @@ void publish_odometry() {
 }
 
 
-void LaserMapping::setup(const std::string& config_path) {
-    readParameters(config_path);
+void LaserMapping::setup(const PointLioParams& params) {
+    readParameters(params);
     cout << "lidar_type: " << lidar_type << endl;
 
 
@@ -1014,8 +1010,8 @@ bool LaserMapping::run_once(custom_messages::Odometry& odom_out) {
 
 
 // ---- LaserMapping wrapper method definitions (forward to file-scope state) ----
-LaserMapping::LaserMapping(const std::string& config_path, double, double, double) {
-    setup(config_path);
+LaserMapping::LaserMapping(const PointLioParams& params, double, double, double) {
+    setup(params);
 }
 void LaserMapping::imu_cbk(const ImuConstPtr& msg_in) { ::imu_cbk(msg_in); }
 void LaserMapping::livox_pcl_cbk(const CstMsgConstPtr& msg) { ::livox_pcl_cbk(msg); }

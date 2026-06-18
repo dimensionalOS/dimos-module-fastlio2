@@ -8,13 +8,13 @@
 class PointLio
 {
 public:
-    PointLio(const std::string& config_path = CONFIG_FILE_PATH,
+    PointLio(const PointLioParams& params = {},
              double msr_freq = 50.0, double main_freq = 5000.0,
              double rotation_gap_threshold_deg_s = 10.0)
         : odom_result(new custom_messages::Odometry)
     {
         laser_mapping = std::make_unique<LaserMapping>(
-            config_path, msr_freq, main_freq, rotation_gap_threshold_deg_s);
+            params, msr_freq, main_freq, rotation_gap_threshold_deg_s);
     }
     ~PointLio() {}
 

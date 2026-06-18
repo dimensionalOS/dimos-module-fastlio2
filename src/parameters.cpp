@@ -1,6 +1,4 @@
 #include "parameters.h"
-#include <yaml-cpp/yaml.h>
-#include <sstream>
 
 bool odom_only;
 std::string odom_header_frame_id, odom_child_frame_id;
@@ -40,93 +38,75 @@ bool scan_pub_en, scan_body_pub_en;
 shared_ptr<Preprocess> p_pre;
 double time_lag_imu_to_lidar = 0.0;
 
-namespace {
-// Descend a dotted path ("mapping.satu_acc") through nested YAML maps; return
-// `def` if any level is missing or the leaf fails to convert.
-template <typename T>
-T cfg(const YAML::Node &root, const std::string &dotted, const T &def) {
-    YAML::Node n = YAML::Clone(root);
-    std::stringstream ss(dotted);
-    std::string key;
-    while (std::getline(ss, key, '.')) {
-        if (!n || !n.IsMap() || !n[key]) return def;
-        n = n[key];
-    }
-    if (!n) return def;
-    try { return n.as<T>(); } catch (...) { return def; }
-}
-}  // namespace
-
-void readParameters(const std::string &config_path) {
+void readParameters(const PointLioParams &params) {
     p_pre.reset(new Preprocess());
-    YAML::Node c = YAML::LoadFile(config_path);
 
-    odom_only             = cfg<bool>(c, "odometry.odom_only", false);
-    odom_header_frame_id  = cfg<std::string>(c, "odometry.odom_header_frame_id", "camera_init");
-    odom_child_frame_id   = cfg<std::string>(c, "odometry.odom_child_frame_id", "aft_mapped");
+    odom_only             = params.odom_only;
+    odom_header_frame_id  = params.odom_header_frame_id;
+    odom_child_frame_id   = params.odom_child_frame_id;
 
-    prop_at_freq_of_imu   = cfg<bool>(c, "mapping.prop_at_freq_of_imu", true);
-    use_imu_as_input      = cfg<bool>(c, "mapping.use_imu_as_input", false);
-    check_satu            = cfg<bool>(c, "mapping.check_satu", true);
-    init_map_size         = cfg<int>(c, "mapping.init_map_size", 10);
-    space_down_sample     = cfg<bool>(c, "mapping.space_down_sample", true);
-    satu_acc              = cfg<double>(c, "mapping.satu_acc", 3.0);
-    satu_gyro             = cfg<double>(c, "mapping.satu_gyro", 35.0);
+    prop_at_freq_of_imu   = params.prop_at_freq_of_imu;
+    use_imu_as_input      = params.use_imu_as_input;
+    check_satu            = params.check_satu;
+    init_map_size         = params.init_map_size;
+    space_down_sample     = params.space_down_sample;
+    satu_acc              = params.satu_acc;
+    satu_gyro             = params.satu_gyro;
     // Post-update velocity sanity cap (m/s). 0 disables (upstream behavior).
-    max_velocity_norm_ms  = cfg<double>(c, "mapping.max_velocity_norm_ms", 0.0);
-    recovery_cooldown_scans = cfg<int>(c, "mapping.recovery_cooldown_scans", 30);
-    acc_norm              = cfg<double>(c, "mapping.acc_norm", 1.0);
-    plane_thr             = cfg<float>(c, "mapping.plane_thr", 0.1f);
-    p_pre->point_filter_num = cfg<int>(c, "preprocess.point_filter_num", 3);
-    lid_topic             = cfg<std::string>(c, "common.lid_topic", "/livox/lidar");
-    imu_topic             = cfg<std::string>(c, "common.imu_topic", "/livox/imu");
-    con_frame             = cfg<bool>(c, "common.con_frame", false);
-    con_frame_num         = cfg<int>(c, "common.con_frame_num", 1);
-    cut_frame             = cfg<bool>(c, "common.cut_frame", false);
-    cut_frame_time_interval = cfg<double>(c, "common.cut_frame_time_interval", 0.1);
-    time_lag_imu_to_lidar = cfg<double>(c, "common.time_lag_imu_to_lidar", 0.0);
-    filter_size_surf_min  = cfg<double>(c, "mapping.filter_size_surf", 0.5);
-    filter_size_map_min   = cfg<double>(c, "mapping.filter_size_map", 0.5);
-    cube_len              = cfg<double>(c, "mapping.cube_side_length", 1000.0);
-    DET_RANGE             = cfg<float>(c, "mapping.det_range", 100.f);
-    fov_deg               = cfg<double>(c, "mapping.fov_degree", 360.0);
-    imu_en                = cfg<bool>(c, "mapping.imu_en", true);
-    non_station_start     = cfg<bool>(c, "mapping.start_in_aggressive_motion", false);
-    extrinsic_est_en      = cfg<bool>(c, "mapping.extrinsic_est_en", false);
-    imu_time_inte         = cfg<double>(c, "mapping.imu_time_inte", 0.005);
-    laser_point_cov       = cfg<double>(c, "mapping.lidar_meas_cov", 0.01);
-    acc_cov_input         = cfg<double>(c, "mapping.acc_cov_input", 0.1);
-    vel_cov               = cfg<double>(c, "mapping.vel_cov", 20.0);
-    gyr_cov_input         = cfg<double>(c, "mapping.gyr_cov_input", 0.01);
-    gyr_cov_output        = cfg<double>(c, "mapping.gyr_cov_output", 1000.0);
-    acc_cov_output        = cfg<double>(c, "mapping.acc_cov_output", 500.0);
-    b_gyr_cov             = cfg<double>(c, "mapping.b_gyr_cov", 0.0001);
-    b_acc_cov             = cfg<double>(c, "mapping.b_acc_cov", 0.0001);
-    imu_meas_acc_cov      = cfg<double>(c, "mapping.imu_meas_acc_cov", 0.01);
-    imu_meas_omg_cov      = cfg<double>(c, "mapping.imu_meas_omg_cov", 0.01);
-    p_pre->blind          = cfg<double>(c, "preprocess.blind", 0.5);
-    lidar_type            = cfg<int>(c, "preprocess.lidar_type", 1);
-    p_pre->N_SCANS        = cfg<int>(c, "preprocess.scan_line", 4);
-    p_pre->SCAN_RATE      = cfg<int>(c, "preprocess.scan_rate", 10);
-    p_pre->time_unit      = cfg<int>(c, "preprocess.timestamp_unit", 3);
-    match_s               = cfg<double>(c, "mapping.match_s", 81.0);
-    gravity_align         = cfg<bool>(c, "mapping.gravity_align", true);
-    gravity               = cfg<std::vector<double>>(c, "mapping.gravity", {0.0, 0.0, -9.810});
-    gravity_init          = cfg<std::vector<double>>(c, "mapping.gravity_init", {0.0, 0.0, -9.810});
-    extrinT               = cfg<std::vector<double>>(c, "mapping.extrinsic_T", {0.0, 0.0, 0.0});
-    extrinR               = cfg<std::vector<double>>(c, "mapping.extrinsic_R", {1,0,0, 0,1,0, 0,0,1});
-    publish_odometry_without_downsample = cfg<bool>(c, "odometry.publish_odometry_without_downsample", false);
-    path_en               = cfg<bool>(c, "publish.path_en", true);
-    scan_pub_en           = cfg<bool>(c, "publish.scan_publish_en", true);
-    scan_body_pub_en      = cfg<bool>(c, "publish.scan_bodyframe_pub_en", false);
-    runtime_pos_log       = cfg<bool>(c, "runtime_pos_log_enable", false);
-    pcd_save_en           = cfg<bool>(c, "pcd_save.pcd_save_en", false);
-    pcd_save_interval     = cfg<int>(c, "pcd_save.interval", -1);
+    max_velocity_norm_ms  = params.max_velocity_norm_ms;
+    recovery_cooldown_scans = params.recovery_cooldown_scans;
+    acc_norm              = params.acc_norm;
+    plane_thr             = params.plane_thr;
+    p_pre->point_filter_num = params.point_filter_num;
+    lid_topic             = params.lid_topic;
+    imu_topic             = params.imu_topic;
+    con_frame             = params.con_frame;
+    con_frame_num         = params.con_frame_num;
+    cut_frame             = params.cut_frame;
+    cut_frame_time_interval = params.cut_frame_time_interval;
+    time_lag_imu_to_lidar = params.time_lag_imu_to_lidar;
+    filter_size_surf_min  = params.filter_size_surf;
+    filter_size_map_min   = params.filter_size_map;
+    cube_len              = params.cube_side_length;
+    DET_RANGE             = params.det_range;
+    fov_deg               = params.fov_degree;
+    imu_en                = params.imu_en;
+    non_station_start     = params.start_in_aggressive_motion;
+    extrinsic_est_en      = params.extrinsic_est_en;
+    imu_time_inte         = params.imu_time_inte;
+    laser_point_cov       = params.lidar_meas_cov;
+    acc_cov_input         = params.acc_cov_input;
+    vel_cov               = params.vel_cov;
+    gyr_cov_input         = params.gyr_cov_input;
+    gyr_cov_output        = params.gyr_cov_output;
+    acc_cov_output        = params.acc_cov_output;
+    b_gyr_cov             = params.b_gyr_cov;
+    b_acc_cov             = params.b_acc_cov;
+    imu_meas_acc_cov      = params.imu_meas_acc_cov;
+    imu_meas_omg_cov      = params.imu_meas_omg_cov;
+    p_pre->blind          = params.blind;
+    lidar_type            = params.lidar_type;
+    p_pre->N_SCANS        = params.scan_line;
+    p_pre->SCAN_RATE      = params.scan_rate;
+    p_pre->time_unit      = params.timestamp_unit;
+    match_s               = params.match_s;
+    gravity_align         = params.gravity_align;
+    gravity               = params.gravity;
+    gravity_init          = params.gravity_init;
+    extrinT               = params.extrinsic_T;
+    extrinR               = params.extrinsic_R;
+    publish_odometry_without_downsample = params.publish_odometry_without_downsample;
+    path_en               = params.path_en;
+    scan_pub_en           = params.scan_publish_en;
+    scan_body_pub_en      = params.scan_bodyframe_pub_en;
+    runtime_pos_log       = params.runtime_pos_log;
+    pcd_save_en           = params.pcd_save_en;
+    pcd_save_interval     = params.pcd_save_interval;
 
     lidar_type = p_pre->lidar_type = lidar_type;
 
-    ivox_options_.resolution_ = cfg<float>(c, "mapping.ivox_grid_resolution", 0.2f);
-    ivox_nearby_type          = cfg<int>(c, "mapping.ivox_nearby_type", 18);
+    ivox_options_.resolution_ = params.ivox_grid_resolution;
+    ivox_nearby_type          = params.ivox_nearby_type;
     if (ivox_nearby_type == 0) {
         ivox_options_.nearby_type_ = IVoxType::NearbyType::CENTER;
     } else if (ivox_nearby_type == 6) {

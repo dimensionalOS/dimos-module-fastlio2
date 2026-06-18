@@ -37,10 +37,9 @@ static CstMsgConstPtr make_scan(double t, unsigned base_ns) {
     return m;
 }
 
-int main(int argc, char** argv) {
-    std::string config = (argc > 1) ? argv[1] : std::string("config/mid360.yaml");
-    std::cout << "[smoke] config=" << config << std::endl;
-    PointLio fl(config);
+int main(int /*argc*/, char** /*argv*/) {
+    std::cout << "[smoke] default PointLioParams" << std::endl;
+    PointLio fl;  // default-constructed params
 
     const double dt = 0.005;          // 200 Hz IMU
     double t = 1000.0;                 // arbitrary start time (s)
