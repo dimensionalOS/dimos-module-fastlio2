@@ -81,6 +81,13 @@ public:
         return cloud;
     }
 
+    /** Return the full undistorted scan in the LiDAR/sensor frame (no world
+     *  registration). */
+    PointCloudXYZI::Ptr get_body_cloud() const {
+        if (!feats_undistort || feats_undistort->empty()) return nullptr;
+        return PointCloudXYZI::Ptr(new PointCloudXYZI(*feats_undistort));
+    }
+
 private:
     void pointBodyToWorld_ikfom(PointType const * const pi, PointType * const po, state_ikfom &s);
     void pointBodyToWorld(PointType const * const pi, PointType * const po);

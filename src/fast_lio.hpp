@@ -16,6 +16,7 @@ public:
     std::vector<double> get_pose();
     const custom_messages::Odometry& get_odometry() const { return *odom_result; }
     PointCloudXYZI::Ptr get_world_cloud() const { return laser_mapping->get_world_cloud(); }
+    PointCloudXYZI::Ptr get_body_cloud() const { return laser_mapping->get_body_cloud(); }
     void write_to_file(const std::vector<double> &pose);
     void write_to_file(const double &time);
 private:
