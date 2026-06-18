@@ -6,7 +6,7 @@
 class FastLio
 {
 public:
-    FastLio(const std::string& config_path = CONFIG_FILE_PATH,
+    FastLio(const FastLioParams& params,
             double msr_freq = 50.0, double main_freq = 5000.0);
     ~FastLio();
 
@@ -17,6 +17,7 @@ public:
     const custom_messages::Odometry& get_odometry() const { return *odom_result; }
     PointCloudXYZI::Ptr get_world_cloud() const { return laser_mapping->get_world_cloud(); }
     PointCloudXYZI::Ptr get_body_cloud() const { return laser_mapping->get_body_cloud(); }
+    PointCloudXYZI::Ptr get_body_cloud_down() const { return laser_mapping->get_body_cloud_down(); }
     void write_to_file(const std::vector<double> &pose);
     void write_to_file(const double &time);
 private:
@@ -25,10 +26,10 @@ private:
     std::unique_ptr<LaserMapping> laser_mapping;
 };
 
-FastLio::FastLio(const std::string& config_path, double msr_freq, double main_freq)
+FastLio::FastLio(const FastLioParams& params, double msr_freq, double main_freq)
     : odom_result(new custom_messages::Odometry), output_file("../data/output.txt"), exec_time_file("../data/time.txt")
 {
-    laser_mapping = std::make_unique<LaserMapping>(config_path, msr_freq, main_freq);
+    laser_mapping = std::make_unique<LaserMapping>(params, msr_freq, main_freq);
 }
 
 FastLio::~FastLio()
