@@ -102,24 +102,33 @@ public:
         return cloud;
     }
 
-    /** Return the full undistorted scan in the LiDAR/sensor frame (no world
-     *  registration). */
+    /** Return the full undistorted scan in the IMU/body frame (LiDAR->IMU
+     *  extrinsic applied; vanilla cloud_registered_body convention). */
     PointCloudXYZI::Ptr get_body_cloud() const {
         if (!feats_undistort || feats_undistort->empty()) return nullptr;
-        return PointCloudXYZI::Ptr(new PointCloudXYZI(*feats_undistort));
+        int size = feats_undistort->points.size();
+        PointCloudXYZI::Ptr cloud(new PointCloudXYZI(size, 1));
+        for (int i = 0; i < size; i++)
+            RGBpointBodyLidarToIMU(&feats_undistort->points[i], &cloud->points[i]);
+        return cloud;
     }
 
-    /** Return the IESKF-downsampled scan in the LiDAR/sensor frame. */
+    /** Return the IESKF-downsampled scan in the IMU/body frame (LiDAR->IMU
+     *  extrinsic applied; vanilla cloud_registered_body convention). */
     PointCloudXYZI::Ptr get_body_cloud_down() const {
         if (!feats_down_body || feats_down_body->empty()) return nullptr;
-        return PointCloudXYZI::Ptr(new PointCloudXYZI(*feats_down_body));
+        int size = feats_down_body->points.size();
+        PointCloudXYZI::Ptr cloud(new PointCloudXYZI(size, 1));
+        for (int i = 0; i < size; i++)
+            RGBpointBodyLidarToIMU(&feats_down_body->points[i], &cloud->points[i]);
+        return cloud;
     }
 
 private:
     void pointBodyToWorld_ikfom(PointType const * const pi, PointType * const po, state_ikfom &s);
     void pointBodyToWorld(PointType const * const pi, PointType * const po);
     void RGBpointBodyToWorld(PointType const * const pi, PointType * const po);
-    void RGBpointBodyLidarToIMU(PointType const * const pi, PointType * const po);
+    void RGBpointBodyLidarToIMU(PointType const * const pi, PointType * const po) const;
     void points_cache_collect();
     void lasermap_fov_segment();
     bool sync_packages(MeasureGroup &meas);
@@ -484,7 +493,7 @@ void LaserMapping::RGBpointBodyToWorld(PointType const * const pi, PointType * c
     po->intensity = pi->intensity;
 }
 
-void LaserMapping::RGBpointBodyLidarToIMU(PointType const * const pi, PointType * const po)
+void LaserMapping::RGBpointBodyLidarToIMU(PointType const * const pi, PointType * const po) const
 {
     V3D p_body_lidar(pi->x, pi->y, pi->z);
     V3D p_body_imu(state_point.offset_R_L_I*p_body_lidar + state_point.offset_T_L_I);
