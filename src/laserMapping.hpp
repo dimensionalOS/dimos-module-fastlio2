@@ -124,6 +124,24 @@ public:
         return cloud;
     }
 
+    /** Return the IESKF-downsampled scan transformed to world frame. */
+    PointCloudXYZI::Ptr get_world_cloud_down() const {
+        if (!feats_down_body || feats_down_body->empty()) return nullptr;
+        int size = feats_down_body->points.size();
+        PointCloudXYZI::Ptr cloud(new PointCloudXYZI(size, 1));
+        for (int i = 0; i < size; i++) {
+            const PointType &pi = feats_down_body->points[i];
+            PointType &po = cloud->points[i];
+            V3D p_body(pi.x, pi.y, pi.z);
+            V3D p_global(state_point.rot * (state_point.offset_R_L_I * p_body + state_point.offset_T_L_I) + state_point.pos);
+            po.x = p_global(0);
+            po.y = p_global(1);
+            po.z = p_global(2);
+            po.intensity = pi.intensity;
+        }
+        return cloud;
+    }
+
 private:
     void pointBodyToWorld_ikfom(PointType const * const pi, PointType * const po, state_ikfom &s);
     void pointBodyToWorld(PointType const * const pi, PointType * const po);
